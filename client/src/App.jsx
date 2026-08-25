@@ -1,51 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { get, post, fmtTime } from './api.js'
-import StatusCard from './StatusCard.jsx'
-
-function ResultView({ r }) {
-  const perf = r.performance
-  const perfLine = perf ? `总耗时 ${fmtTime(perf.durationMs)} · 模型调用 ${perf.llmCalls || 0} 次${perf.llmFailedCalls ? `（失败 ${perf.llmFailedCalls} 次）` : ''}` : ''
-  if (r.results && Array.isArray(r.results)) {
-    return (
-      <div className="la-res">
-        <h4>已完成：{r.okCount || 0}/{r.total || 0} 份</h4>
-        {perfLine ? <div className="la-hint">{perfLine}</div> : null}
-        {r.indexUrl ? <a className="la-link" href={r.indexUrl} target="_blank" rel="noreferrer"><span>查看全部课程</span><small>{r.indexPath || ''}</small></a> : null}
-        {r.results.map((x, i) => x.ok ? (
-          <div key={i} className="la-batchitem">
-            <div className="la-batchname">{x.title || x.name || x.file}</div>
-            {(x.warnings || []).map((warning, warningIndex) => <div key={'w' + warningIndex} className="la-warn">{warning}</div>)}
-            {x.files && x.files.html && x.files.html.url ? <a className="la-link" href={x.files.html.url} target="_blank" rel="noreferrer"><span>HTML 课件</span><small>{x.files.html.rel}</small></a> : null}
-            {x.files && x.files.pptx && x.files.pptx.url ? <a className="la-link" href={x.files.pptx.url} target="_blank" rel="noreferrer"><span>PPTX</span><small>{x.files.pptx.rel}</small></a> : null}
-          </div>
-        ) : (
-          <div key={i} className="la-batchitem">
-            <div className="la-batchname" style={{ color: '#b91c1c' }}>失败：{x.name || x.file}</div>
-            <div className="la-hint">{x.error || '失败'}</div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-  const items = []
-  if (r.files && r.files.html) items.push(['HTML 课件', r.files.html])
-  if (r.files && r.files.pptx) items.push(['PPTX', r.files.pptx])
-  if (r.files && r.files.source) items.push(['提取原文', r.files.source])
-  if (r.indexPath) items.push(['学习中心', { rel: r.indexPath, url: r.indexUrl }])
-  return (
-    <div className="la-res">
-      <h4>{r.warnings && r.warnings.length ? '生成完成（有质量提醒）' : '生成完成'}：{r.title || ''}</h4>
-      {(r.warnings || []).map((warning, i) => <div key={i} className="la-warn">{warning}</div>)}
-      {items.map(([label, f], i) => f && f.url ? (
-        <a key={i} className="la-link" href={f.url} target="_blank" rel="noreferrer"><span>{label}</span><small>{f.rel}</small></a>
-      ) : (
-        <div key={i} className="la-link"><span>{label}</span><small>{f ? f.rel : ''}</small></div>
-      ))}
-      {perfLine ? <div className="la-hint">{perfLine}{perf.rounds ? ` · ${perf.rounds} 轮` : ''}</div> : null}
-      {r.check ? <div className="la-hint">排版检查：{r.check.skipped && r.check.error ? `已跳过（${r.check.error}）` : (r.check.problems && r.check.problems.length ? r.check.problems.join('；') : '通过')}</div> : null}
-    </div>
-  )
-}
+import React, { useEffect, useState } from 'react'
+import { get, post } from './api.js'
+import FilePicker from './FilePicker.jsx'
+import GenerationOptions from './GenerationOptions.jsx'
+import { buildGenerationSubmission } from './generation-request.js'
+import useJobPolling from './useJobPolling.js'
 
 function SettingsView({ onDone }) {
   const [cfg, setCfg] = useState(null)
@@ -133,15 +91,7 @@ function Panel() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [result, setResult] = useState(null)
-  const [liveStatus, setLiveStatus] = useState(null)
   const [checked, setChecked] = useState({})
-  const pollRef = useRef(null)
-
-  const stopPoll = () => {
-    const active = pollRef.current
-    if (active && active.timer) clearTimeout(active.timer)
-    pollRef.current = null
-  }
 
   function listDir(d) {
     setErr('')
@@ -164,40 +114,14 @@ function Panel() {
   }
 
   function renderResultOf(r) {
-    setBusy(false); setLiveStatus(null)
+    setBusy(false); clearStatus()
     loadTaxonomy()
     if (r && r.batch) { setResult(r); return }
     if (r && r.ok) setResult(r)
     else setErr((r && r.error) || '生成失败')
   }
 
-  function pollJob(job) {
-    stopPoll()
-    try { localStorage.setItem('la.lastJob', job) } catch (e) {}
-    let missing = 0
-    const active = { job, timer: null }
-    pollRef.current = active
-    const tick = async () => {
-      try {
-        const s = await get('/api/study-assistant/status?job=' + encodeURIComponent(job) + '&_=' + Date.now())
-        if (!s || !s.found) {
-          missing++
-          if (missing > 20) { stopPoll(); renderResultOf({ ok: false, error: '任务状态丢失（服务可能已重启），请重新生成' }) }
-        } else {
-          missing = 0
-          if (s.stage === 'done' || s.stage === 'error') {
-            stopPoll()
-            renderResultOf(s.result || { ok: false, error: (s.detail || '生成失败') })
-          } else setLiveStatus(s)
-        }
-      } catch (e) {
-        // 短暂断线时保留当前状态；下一轮继续尝试。
-      } finally {
-        if (pollRef.current === active) active.timer = setTimeout(tick, 1500)
-      }
-    }
-    tick()
-  }
+  const { liveStatus, pollJob, resumeJob, beginStatus, clearStatus } = useJobPolling(renderResultOf)
 
   useEffect(() => {
     let startDir = ''
@@ -205,16 +129,7 @@ function Panel() {
     listDir(startDir)
     let lastJob = ''
     try { lastJob = localStorage.getItem('la.lastJob') || '' } catch (e) {}
-    if (!lastJob) return stopPoll
-    get('/api/study-assistant/status?job=' + encodeURIComponent(lastJob))
-      .then(s => {
-        if (!s || !s.found) { try { localStorage.removeItem('la.lastJob') } catch (e) {} return }
-        if (s.stage === 'done' || s.stage === 'error') { renderResultOf(s.result || { ok: false, error: (s.detail || '生成失败') }); return }
-        setBusy(true)
-        pollJob(lastJob)
-      })
-      .catch(() => {})
-    return stopPoll
+    if (lastJob) resumeJob(lastJob).then(active => { if (active) setBusy(true) })
   }, [])
 
   function pickFolder() {
@@ -246,119 +161,82 @@ function Panel() {
 
   function start() {
     const keys = Object.keys(checked)
-    if (!keys.length && !sel) { setErr('请先选择或勾选文件'); return }
-    if (!wantHtml && !wantPptx) { setErr('至少选择一种输出格式'); return }
-    const selectedCourse = (taxonomy.courses || []).find(course => course.rel === courseMode)
-    const courseVal = courseMode === '__new' ? courseNew.trim() : (selectedCourse && selectedCourse.name) || ''
-    const coursePath = selectedCourse ? selectedCourse.rel : ''
-    if (!courseVal) { setErr(courseMode === '__new' ? '请输入新课程名称' : '请选择已有课程或新建课程'); return }
-    const isBatch = keys.length > 0
     const isCombined = keys.length > 1 && multiMode === 'combined'
-    const currentFile = isCombined ? keys.length + ' 份资料（合并）' : (isBatch ? (checked[keys[0]] || keys[0]) : selName)
-    setBusy(true); setErr(''); setResult(null)
-    setLiveStatus({ found: true, stage: 'extract', detail: '正在提交生成任务…', currentFile, started: Date.now(), elapsed: 0, timeline: [] })
+    const isBatch = keys.length > 0
     const job = (isCombined ? 'comb-' : (isBatch ? 'bat-' : 'la-')) + Date.now() + '-' + Math.floor(Math.random() * 1e6)
-    const body = isBatch
-      ? { files: keys, mode: isCombined ? 'combined' : 'separate', outputName: isCombined ? combinedName.trim() : '', course: courseVal, coursePath, depth, html: wantHtml, pptx: wantPptx, job }
-      : { rel: sel, course: courseVal, coursePath, depth, html: wantHtml, pptx: wantPptx, job }
-    post(isBatch ? '/api/study-assistant/generate-batch' : '/api/study-assistant/generate', body)
+    const submission = buildGenerationSubmission({
+      checked,
+      selectedPath: sel,
+      selectedName: selName,
+      courses: taxonomy.courses,
+      courseMode,
+      newCourseName: courseNew,
+      multiMode,
+      combinedName,
+      depth,
+      wantHtml,
+      wantPptx,
+      job,
+    })
+    if (submission.error) { setErr(submission.error); return }
+    setBusy(true); setErr(''); setResult(null)
+    beginStatus({ found: true, stage: 'extract', detail: '正在提交生成任务…', currentFile: submission.currentFile, started: Date.now(), elapsed: 0, timeline: [] })
+    post(submission.endpoint, submission.body)
       .then(r => {
         if (r && r.ok) {
           if (r.started) pollJob(r.job || job)
-          else { setBusy(false); setLiveStatus(null); setResult(r) }
-        } else { setBusy(false); setLiveStatus(null); setErr((r && r.error) || '任务提交失败') }
+          else renderResultOf(r)
+        } else { setBusy(false); clearStatus(); setErr((r && r.error) || '任务提交失败') }
       })
-      .catch(e => { setBusy(false); setLiveStatus(null); setErr('任务提交异常: ' + (e && e.message || e)) })
+      .catch(e => { setBusy(false); clearStatus(); setErr('任务提交异常: ' + (e && e.message || e)) })
   }
 
-  const list = entries || []
   const checkedKeys = Object.keys(checked)
 
   return (
     <div className="app-page">
       <h1>生成课件</h1>
-      <div className="la-card">
-        <div className="la-sec">1. 选择资料</div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input className="la-input" style={{ flex: 1, minWidth: 0 }} placeholder="输入文件夹路径" value={pathInput}
-            onChange={e => setPathInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') listDir(pathInput) }} />
-          <button className="la-upbtn" title="选择文件夹" onClick={pickFolder}>选择</button>
-          <button className="la-upbtn" title="进入该文件夹" onClick={() => listDir(pathInput)}>进入</button>
-          <button className="la-upbtn" title="上一级" disabled={!parent} onClick={() => listDir(parent)}>⬆</button>
-        </div>
-        <div className="la-dirpath">当前：{dir || '…'}</div>
-        <div className="la-hint">输入文件夹保持原样。</div>
-        {list.some(e => !e.isDir) ? (
-          <div className="la-batchbar">
-            <button className="la-upbtn" onClick={selectAllFiles}>全选</button>
-            <button className="la-upbtn" onClick={() => setChecked({})}>清空</button>
-            {checkedKeys.length ? <span className="la-batchcount">已选 {checkedKeys.length} 个文件</span> : null}
-          </div>
-        ) : null}
-        <div className="la-list">
-          {entries === null ? <div className="la-hint">正在读取…</div>
-            : list.length === 0 ? <div className="la-hint">该文件夹下没有支持的文件（PPTX/DOCX/XLSX/PDF/IPYNB/代码）</div>
-            : list.map(e => e.isDir ? (
-              <div key={e.path} className="la-dirrow" onClick={() => listDir(e.path)}>
-                <span>📁</span><span className="la-dirname">{e.name}</span>
-                <button className="la-renbtn" title="重命名" onClick={ev => { ev.stopPropagation(); renameEntry(e) }}>✏️</button>
-              </div>
-            ) : (
-              <div key={e.path} className={'la-file' + (sel === e.path ? ' la-on' : '')} onClick={() => { setSel(e.path); setSelName(e.name) }}>
-                <input type="checkbox" className="la-checkbox" checked={!!checked[e.path]} title="加入本次生成"
-                  onChange={() => toggleCheck(e)} onClick={ev => ev.stopPropagation()} />
-                <span className="la-ext">{(e.ext || '').slice(1).toUpperCase()}</span>
-                <span className="la-fname">{e.name}</span>
-              </div>
-            ))}
-        </div>
-        {sel ? <div className="la-selbox">已选：{selName}</div> : null}
-      </div>
-      <div className="la-card">
-        <div className="la-sec">2. 课程</div>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <button className="la-upbtn" onClick={() => loadTaxonomy()}>刷新列表</button>
-        </div>
-        <select className="la-input" value={courseMode} onChange={e => setCourseMode(e.target.value)}>
-          <option value="">请选择课程</option>
-          {(taxonomy.courses || []).map(course => <option key={course.rel} value={course.rel}>{course.name}</option>)}
-          <option value="__new">新建课程…</option>
-        </select>
-        {courseMode === '__new' ? <input className="la-input" placeholder="新课程名称" value={courseNew} onChange={e => setCourseNew(e.target.value)} /> : null}
-        {checkedKeys.length > 1 ? (
-          <>
-            <div className="la-sec">3. 多文件处理</div>
-            <div className="la-modegrid">
-              <label className={'la-mode' + (multiMode === 'separate' ? ' la-mode-on' : '')}>
-                <input type="radio" name="multiMode" value="separate" checked={multiMode === 'separate'} onChange={() => setMultiMode('separate')} />
-                <strong>分别生成</strong><span>每份英文资料输出一套中文课件</span>
-              </label>
-              <label className={'la-mode' + (multiMode === 'combined' ? ' la-mode-on' : '')}>
-                <input type="radio" name="multiMode" value="combined" checked={multiMode === 'combined'} onChange={() => setMultiMode('combined')} />
-                <strong>合并生成</strong><span>综合去重后输出一套中文课件</span>
-              </label>
-            </div>
-            {multiMode === 'combined' ? <input className="la-input" placeholder="合并课件文件名（可选）" value={combinedName} onChange={e => setCombinedName(e.target.value)} /> : null}
-          </>
-        ) : null}
-        <div className="la-sec">{checkedKeys.length > 1 ? '4' : '3'}. 讲解深度</div>
-        <select className="la-input" value={depth} onChange={e => setDepth(e.target.value)}>
-          <option value="concise">简明：核心内容</option>
-          <option value="standard">标准：完整讲解</option>
-          <option value="detailed">深入：增加推导与延伸</option>
-        </select>
-        <div className="la-checks">
-          <label className="la-check"><input type="checkbox" checked={wantHtml} onChange={e => setWantHtml(e.target.checked)} /> HTML 课件</label>
-          <label className="la-check"><input type="checkbox" checked={wantPptx} onChange={e => setWantPptx(e.target.checked)} /> PPTX</label>
-        </div>
-        <button className="la-go" disabled={busy} onClick={start}>
-          {busy ? '生成中…' : (checkedKeys.length > 1 && multiMode === 'combined' ? '合并生成 1 份课件' : (checkedKeys.length ? '分别生成 ' + checkedKeys.length + ' 份课件' : '生成课件'))}
-        </button>
-        {liveStatus ? <StatusCard s={liveStatus} /> : null}
-        {err ? <div className="la-err">{err}</div> : null}
-        {result ? <ResultView r={result} /> : null}
-      </div>
+      <FilePicker
+        dir={dir}
+        parent={parent}
+        entries={entries}
+        pathInput={pathInput}
+        selectedPath={sel}
+        selectedName={selName}
+        checked={checked}
+        onPathInput={setPathInput}
+        onListDir={listDir}
+        onPickFolder={pickFolder}
+        onToggle={toggleCheck}
+        onSelectAll={selectAllFiles}
+        onClearChecked={() => setChecked({})}
+        onSelect={entry => { setSel(entry.path); setSelName(entry.name) }}
+        onRename={renameEntry}
+      />
+      <GenerationOptions
+        courses={taxonomy.courses}
+        courseMode={courseMode}
+        courseNew={courseNew}
+        multiMode={multiMode}
+        combinedName={combinedName}
+        depth={depth}
+        wantHtml={wantHtml}
+        wantPptx={wantPptx}
+        checkedCount={checkedKeys.length}
+        busy={busy}
+        liveStatus={liveStatus}
+        error={err}
+        result={result}
+        onRefreshCourses={loadTaxonomy}
+        onCourseMode={setCourseMode}
+        onCourseNew={setCourseNew}
+        onMultiMode={setMultiMode}
+        onCombinedName={setCombinedName}
+        onDepth={setDepth}
+        onWantHtml={setWantHtml}
+        onWantPptx={setWantPptx}
+        onStart={start}
+      />
     </div>
   )
 }

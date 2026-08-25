@@ -3,10 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PAGE_CSS, RENDER_JS } from './embedded.mjs'
-import { paginateCourseSlides } from './parse.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-export const HTML_RENDERER_VERSION = 18
+export const HTML_RENDERER_VERSION = 19
 
 let runtimeCache = null
 
@@ -55,8 +54,7 @@ export function standaloneKatexAssets() {
 
 export function buildHtmlDoc(courseData) {
   const runtime = loadRuntimeAssets()
-  const renderData = { ...courseData, slides: paginateCourseSlides(courseData.slides) }
-  const payload = Buffer.from(JSON.stringify(renderData), 'utf8').toString('base64')
+  const payload = Buffer.from(JSON.stringify(courseData), 'utf8').toString('base64')
   const titleEsc = String(courseData.title || '').split('<').join('').split('>').join('')
   return `<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='baobao-renderer-version' content='${HTML_RENDERER_VERSION}'><title>${titleEsc}</title><style data-baobao-runtime='katex'>${safeStyle(runtime.katexCss)}</style><style data-baobao-runtime='reveal'>${safeStyle(runtime.revealCss)}</style><style>${safeStyle(PAGE_CSS)}</style></head><body><div class='reveal'><div class='slides' id='deck'></div></div><script type='application/json' id='course-data'>${payload}</script><script>${safeScript(RENDER_JS)}</script><script data-baobao-runtime='katex'>${safeScript(runtime.katexJs)}</script><script data-baobao-runtime='katex-auto-render'>${safeScript(runtime.autoRenderJs)}</script><script data-baobao-runtime='reveal'>${safeScript(runtime.revealJs)}</script><!-- Third-party license notices bundled with this standalone course:\n${runtime.licenses}\n--></body></html>`
 }

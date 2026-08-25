@@ -156,9 +156,17 @@ export async function checkHtml(htmlPath, browserPath, pageUrl = '') {
           })
         }
         if (initialSlide && window.Reveal.slide) window.Reveal.slide(initialSlide.h || 0, initialSlide.v || 0, initialSlide.f)
+        const mathTargets = Array.from(document.querySelectorAll('.b-formula,.b-ds-latex'))
+        const unrenderedMath = mathTargets.filter(target => !target.querySelector('.katex')).map(target => {
+          const slide = target.closest('.slides > section.dsh-slide')
+          return {
+            page: Math.max(1, slides.indexOf(slide) + 1),
+            text: String(target.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 100)
+          }
+        })
         let dollars = 0
         slides.forEach(s => { dollars += (s.textContent.match(/\\$/g) || []).length })
-        return { slides: slides.length, hasReveal, hasKatex, hasAutoRender, fallbackMode: document.body.classList.contains('dsh-fallback'), formulaBlocks: document.querySelectorAll('.b-formula').length, katexOk: document.querySelectorAll('.katex').length, katexErrors: document.querySelectorAll('.katex-error').length, leftoverDollar: dollars, bodyReady: document.body.classList.contains('ready'), per }
+        return { slides: slides.length, hasReveal, hasKatex, hasAutoRender, fallbackMode: document.body.classList.contains('dsh-fallback'), formulaBlocks: document.querySelectorAll('.b-formula').length, mathTargets: mathTargets.length, unrenderedMath, katexOk: document.querySelectorAll('.katex').length, katexErrors: document.querySelectorAll('.katex-error').length, leftoverDollar: dollars, bodyReady: document.body.classList.contains('ready'), per }
       })()`,
       returnByValue: true,
       awaitPromise: true,
@@ -172,7 +180,8 @@ export async function checkHtml(htmlPath, browserPath, pageUrl = '') {
     if (!v.hasReveal || v.fallbackMode) problems.push('Reveal.js 未加载，课件已退化成长页面，无法按幻灯片正确缩放')
     problems.push(...collectLayoutProblems(v))
     if (v.katexErrors > 0) problems.push('有 ' + v.katexErrors + ' 个公式渲染失败')
-    if (v.formulaBlocks > 0 && (!v.hasKatex || !v.hasAutoRender)) problems.push('KaTeX 未加载，公式仍是原始 LaTeX 文本')
+    if (v.mathTargets > 0 && (!v.hasKatex || !v.hasAutoRender)) problems.push('KaTeX 未加载，公式仍是原始 LaTeX 文本')
+    for (const item of (v.unrenderedMath || []).slice(0, 8)) problems.push('第' + item.page + '页公式未渲染：' + (item.text || '空公式'))
     if (v.leftoverDollar > 0) problems.push('仍有 ' + v.leftoverDollar + ' 个未渲染的 $ 定界符')
     return { ok: true, metrics: v, problems }
   } catch (e) {

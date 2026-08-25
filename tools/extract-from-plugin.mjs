@@ -2,13 +2,45 @@
 // 修改与许可证说明见 NOTICE、THIRD_PARTY_NOTICES.md 和 LICENSES/Apache-2.0.txt。
 // 一次性脚手架工具：把 DSH 插件里沉淀的纯 JS 资产（提示词/渲染器/PPTX 等）抽取为独立 ESM 模块。
 // 默认只写入待审阅候选文件，避免覆盖已经维护过的正式模板。
-// 用法: node tools/extract-from-plugin.mjs [--replace-live]
+// 用法: node tools/extract-from-plugin.mjs [--plugin <lib/index.js>] [--replace-live]
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const PLUGIN = 'D:/DeepSeekHarness/profiles/web/node_modules/@linxin666/dsh-study-assistant/lib/index.js'
-const replaceLive = process.argv.includes('--replace-live')
+function parseArgs(args) {
+  let plugin = ''
+  let replaceLive = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--replace-live') {
+      replaceLive = true
+    } else if (arg === '--plugin') {
+      plugin = args[++i] || ''
+      if (!plugin) throw new Error('--plugin 需要一个 lib/index.js 路径')
+    } else if (arg.startsWith('--plugin=')) {
+      plugin = arg.slice('--plugin='.length)
+      if (!plugin) throw new Error('--plugin 需要一个 lib/index.js 路径')
+    } else {
+      throw new Error('未知参数: ' + arg)
+    }
+  }
+  return { plugin, replaceLive }
+}
+
+function discoverPlugin() {
+  const require = createRequire(import.meta.url)
+  try {
+    return require.resolve('@linxin666/dsh-study-assistant')
+  } catch {
+    throw new Error('未在本项目的 Node 模块搜索路径中找到 @linxin666/dsh-study-assistant；请使用 --plugin <lib/index.js> 显式指定来源')
+  }
+}
+
+const options = parseArgs(process.argv.slice(2))
+const PLUGIN = path.resolve(options.plugin || discoverPlugin())
+if (!fs.statSync(PLUGIN).isFile()) throw new Error('插件入口不是文件: ' + PLUGIN)
+const replaceLive = options.replaceLive
 const OUT = fileURLToPath(new URL(replaceLive ? '../server/embedded.mjs' : '../server/embedded.candidate.mjs', import.meta.url))
 const src = fs.readFileSync(PLUGIN, 'utf8')
 
@@ -290,7 +322,7 @@ function applyStandaloneOverrides(name, body) {
   return body
 }
 
-const NAMES = ['SYS', 'PAGE_CSS', 'RENDER_JS', 'INDEX_CSS', 'IX_JS', 'PY']
+const NAMES = ['SYS', 'PAGE_CSS', 'RENDER_JS', 'PY']
 let out = '// 包含并修改自 @linxin666/dsh-study-assistant 0.1.0（Apache-2.0）。\n// 修改与许可证说明见 NOTICE、THIRD_PARTY_NOTICES.md 和 LICENSES/Apache-2.0.txt。\n// 由 tools/extract-from-plugin.mjs 生成；替换正式模板前必须人工审阅差异。\n'
 for (const n of NAMES) {
   const body = applyStandaloneOverrides(n, grabTemplate(n))
@@ -298,7 +330,10 @@ for (const n of NAMES) {
   out += 'export const ' + n + ' = `' + body + '`\n\n'
 }
 fs.mkdirSync(path.dirname(OUT), { recursive: true })
-fs.writeFileSync(OUT, out, 'utf8')
+if (!replaceLive && fs.existsSync(OUT)) {
+  throw new Error('候选文件已存在，请先审阅并移走或删除后再生成: ' + OUT)
+}
+fs.writeFileSync(OUT, out, { encoding: 'utf8', flag: replaceLive ? 'w' : 'wx' })
 console.log(replaceLive ? '正式模板已替换:' : '候选模板已生成:', OUT)
 if (!replaceLive) console.log('请审阅候选文件与 server/embedded.mjs 的差异；确认后才可使用 --replace-live。')
 // 校验 RENDER_JS 可解析

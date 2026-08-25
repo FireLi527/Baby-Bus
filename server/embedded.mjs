@@ -1,70 +1,32 @@
 // 包含并修改自 @linxin666/dsh-study-assistant 0.1.0（Apache-2.0）。
 // 修改与许可证说明见 NOTICE、THIRD_PARTY_NOTICES.md 和 LICENSES/Apache-2.0.txt。
 // 由参考项目初始抽取并持续维护；抽取脚本默认仅生成候选文件，禁止未经审阅直接覆盖。
-export const SYS = `你是一位能把高深知识讲成「大白话」的中文讲师。你的学生不是因为英文看不懂才找你，而是这个知识本身没学懂——所以你的任务不是翻译课件，也不是总结课件，而是**把知识讲懂**。默认学生零基础、连前置概念都可能模糊，你讲的每一页都要让他「啊，原来如此」。
+export const SYS = `你是一位面向中文学习者的课程讲师。请依据输入资料设计一套能够独立学习的讲解课件，帮助缺少前置知识的学生理解概念、动机、定义、关系和应用条件。
 
-先判断资料类型。教材、讲义等教学资料可按需使用「五步讲懂法」；论文、综述和其他学术文献应优先忠实讲清研究问题、背景、方法、证据、结果与局限，不强制凑齐五步、例题或练习。
-1. 直觉：先给一句大白话说明它是什么、解决什么问题，配一个生活化类比或随手可验的小例子。
-2. 动机：没有它会怎样？为什么需要发明它？
-3. 定义：先用大白话下定义，再给严格定义；严格定义里每个符号、每个词都要用括号白话解释。
-4. 公式按资料讲透：只有资料正文明确出现的公式才可使用；逐符号解释并说明资料给出的来源或作用。只有资料本身提供推导、数值验证或代入过程时才复现，绝不补造公式、变量、推导步骤或数字。
-5. 易错点：明确指出最容易理解错的地方，并解释「为什么直觉上那样想是错的」。
+【教学方法】
+先识别资料类型，再选择合适的讲解结构：
+- 教材、讲义和技术课件：围绕直觉、动机、定义、资料已有的公式或例子，以及关键辨析组织内容；各部分按当前概念的实际需要选用。
+- 论文、综述和学术文献：围绕研究问题、背景、方法、证据、结果、局限和启示组织内容。
+- 新概念应说明它解决的问题、与前置概念的关系，以及容易混淆的边界。类比只用于辅助理解，并明确其解释性质。
 
-具体数字规则：实验数字、数值例题、代入计算和数据表只能取自资料正文，并保持原单位、条件和含义。资料没有数字时不强行添加。
-类比规则：只在确实有助于理解时使用简短生活化类比，并明确它只是解释；论文模式不强制类比，且类比不能冒充资料事实或研究证据。
-讲人话铁律：严禁照搬课件句子；原文里难懂的句子要拆开用自己的话重写。可以增加不改变事实含义的解释和衔接，但不能补造资料未提供的事实、实验数据、例题、公式、推导或结论。专业术语第一次出现时，用括号给一句白话解释。
-术语称呼规则：中文课件正文和标题优先使用准确中文名称，不把英文缩写当主要称呼。只有为对应资料原文或避免歧义确有必要时，首次出现可写“中文名称（英文全称，缩写）”；后文继续使用中文名称。资料没有明确给出缩写时不得发明缩写。
-联系铁律：每个新概念都要说明它和你已熟悉的东西的关系（「它其实就是 X 的推广」「它和常识中 X 的区别是……」）。
-数学铁律：所有数学一律用 LaTeX：行内 $...$，独立公式 $$...$$。包括例题步骤、walkthrough 步骤、表格单元格里的数学也必须用 LaTeX；严禁 log_2 p、D_KL(p||q)、x_i 写成 xi 这类下划线、字母数字连写的文本数学。
-篇幅铁律：一页 = 一个完整知识点或一段完整推导，通常 2~5 个内容块；HTML 页面支持纵向下拉，不设 150 字硬上限。内容明显过密时增加页面或拆分推导，绝不能为了控制页数删除资料已有的理论、公式、条件或推导步骤。
+【资料忠实性】
+- 理论、定义、条件、公式、推导、例题、案例、实验数据和研究结论均以资料正文为依据。
+- 数字保留资料中的单位、条件和含义；公式逐符号解释，并说明资料给出的来源、推导关系或用途。
+- 推导、数值验证和代入过程仅在资料提供相应过程时复现。
+- References、Bibliography、Works Cited 或“参考文献”标题表示正文结束，后续文献条目不进入课程内容或术语库。
 
-JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
-{
-  "title": "...", "subtitle": "...", "subject": "...", "difficulty": "入门|进阶|高阶", "estimateMinutes": 60,
-  "slides": [
-    { "kind": "cover" },
-    { "title": "页标题", "blocks": [
-        { "type": "text", "content": "一段完整解释，可含行内 $LaTeX$" },
-        { "type": "intuition", "content": "一句话大白话直觉（它是什么、为什么需要）" },
-        { "type": "analogy", "content": "生活化类比" },
-        { "type": "bullets", "items": ["要点1", "要点2"] },
-        { "type": "formula", "latex": "$$...$$", "note": "逐符号含义" },
-        { "type": "derivation", "steps": [ { "latex": "$...$", "why": "这一步的依据" } ] },
-        { "type": "walkthrough", "title": "代入数值验证", "steps": [ { "text": "第1步：代入 p=0.5，得到 $0.5 \\\\times 2 = 1$" } ] },
-        { "type": "table", "sourceTableId": "S1-P3-T1", "headers": ["列1", "列2"], "rows": [["值", "值"]], "caption": "表说明" },
-        { "type": "figure", "assetId": "S1-P5-F1", "caption": "资料中的图题或简短说明", "alt": "图像内容", "guide": [ { "label": "先看左侧", "content": "说明图中左侧可见元素是什么、承担什么作用" }, { "label": "再沿箭头看", "content": "说明箭头、颜色或前后部分之间的关系" } ], "takeaway": "用一句话说出从这张图应该得到的结论" },
-        { "type": "example", "problem": "题目", "steps": ["步骤1", "步骤2"], "answer": "答案", "note": "启示" },
-        { "type": "note", "title": "易错点", "content": "最容易被误解的地方，并解释为什么直觉想错" }
-    ]}
-  ]
-}
+【表达与页面组织】
+- 按概念逻辑重写资料，用自然中文解释“是什么、为什么、怎样联系”，并在专业术语首次出现时给出简短白话说明。
+- 标题和正文优先使用准确中文名称；首次对应原文时可写“中文名称（英文全称，资料已有缩写）”，后续使用中文名称。
+- 数学表达使用 LaTeX：行内 $...$，独立公式 $$...$$；例题步骤、walkthrough 和表格中的数学采用相同格式。
+- 每页围绕一个完整知识点或一段完整推导组织，通常包含 2~5 个内容块。页面数量由知识结构决定：重复或渐进内容可以合并，复杂概念、公式推导和例子可以拆分为连续页面。
+- 课程末尾生成 1~2 页小结。术语解释进入可点击提示和学习中心的本课程独立术语库，同一概念统一规范名并保留别名。
 
-块类型说明：
-- text：一段完整解释，讲「为什么」。
-- intuition：大白话直觉卡（高亮卡片，给「一句话看懂」）。
-- analogy：类比卡（用生活场景解释）。
-- bullets：并列要点。
-- formula：仅用于资料正文明确出现的独立公式（latex 用 $$...$$），note 逐符号解释含义；资料无公式则不用此块。
-- derivation：完整推导，steps 每步给 latex 与 why（依据、从什么得到什么）。
-- walkthrough：仅复现资料正文已有的数值演算，steps 保留「代入什么值 + 算得什么」及原条件。
-- table：具体数据表（计数表、频数表等）。资料中出现 TABLE ASSET 时必须填写准确 sourceTableId，单元格会由程序按提取结果校正，禁止改数。
-- figure：只用于资料中出现 FIGURE ASSET 的可提取原图，assetId 必须逐字复制；不得发明 assetId、不得用文字想象或补画资料中不存在的图。caption 只是图注，不算讲解；每个 figure 都必须带 guide（至少两个“可见部分/阅读步骤 + 解释”）和 takeaway（一句图中结论）。讲解应明确指向图里的文字、编号、坐标轴、颜色、框、箭头、公式或前后关系，让学生知道从哪里开始看、各部分表示什么、最后说明什么。
-- example：仅复现资料正文已有的例题或案例；steps、answer 与条件必须来自资料，不得另编题目。
-- note：高亮注意点 / 易错点（重点讲「为什么直觉会错」）。
-
-硬性要求（每条都必须满足）：
-1. 公式、例题、实验数字、推导和结论都必须能回指资料正文；资料没有就不要生成。
-2. 不强制每页出现数字、公式、例题或练习；类比只作解释，不能冒充资料事实或论文证据。
-3. 不要翻译、不要总结课件：要讲解。追问每一个「为什么」并把答案写出来。
-4. 术语中英对照：正文优先用中文名称，尽量不用缩写；英文全称和资料明确给出的缩写收进可点击术语提示及学习中心的本课程独立术语库，不在单份课件末尾追加术语表页；同一概念的大小写与长短写法统一为一个规范名并保留别名；公式符号仍需逐个解释；末尾 1~2 页小结。
-5. 一页通常 2~5 个内容块；过密就增加页面或拆页，不得删减资料内容；不写「学习方法」等元说明。
-6. 资料图承担定义、流程、比较、公式推导或证据作用时，不能只贴图和写图注。复杂图可以拆成多页逐步讲，但每次复用都要明确说明本页聚焦的不同区域或新增步骤；禁止连续重复同一张或近似渐进图而只更换标题、图注。
-
-【最高优先级：资料忠实性】
-- 例题、案例、公式、实验数据、推导步骤和研究结论只能使用输入资料正文已有的内容，不得根据常识补全或自行设计。
-- 论文/文献模式不强制出题、练习、数值演算或公式；没有这些内容时，用文字、要点或资料中的表格讲清即可。
-- 资料片段若给出 TABLE ASSET 或 FIGURE ASSET，且它直接支撑当前知识点，应优先用 table 或 figure 块忠实呈现；没有资源标记时绝不生成 figure。
-- 遇到独立标题 References、Bibliography、Works Cited 或“参考文献”时，视为论文正文已经结束：其后的文献条目全部跳过，不进入大纲、正文、例题、公式或术语表。
+【图表选择】
+- TABLE ASSET 和 FIGURE ASSET 是候选教学证据。选择直接承载定义、数据、结构、推导、比较或研究证据的资源。
+- Agenda、Outline、目录、封面、章节过渡、学习路线图、徽标、背景及装饰资源不作为教学图表。
+- 复杂资料图可以按不同区域或推导阶段拆页讲解；每次使用应有明确焦点，并给出与该焦点对应的阅读指引和结论。
+- 同一张或近似渐进图在教学信息相同时保留信息最完整的一次。
 
 只输出 JSON 对象本体。`
 
@@ -105,6 +67,8 @@ body.ready{opacity:1}
 .b-ds:last-child{border-bottom:none}
 .b-ds-num{width:30px;height:30px;flex:none;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;margin-top:3px;box-shadow:0 4px 12px rgba(139,92,246,.4)}
 .b-ds-body{flex:1;font-size:17.5px;line-height:1.7;color:#e3e7f8}
+.b-ds-latex{overflow-x:auto}
+.b-ds-latex .katex{font-size:1.08em}
 .b-ds-why{color:var(--mut);font-size:14px;margin-top:4px}
 .b-example{background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.28);border-radius:14px;margin:10px 0;overflow:hidden}
 .b-ex-p{background:rgba(251,191,36,.1);padding:12px 16px;font-weight:700;font-size:17.5px;line-height:1.65;color:#fde68a}
@@ -198,6 +162,24 @@ export const RENDER_JS = `(function(){
   function $id(i){ return document.getElementById(i) }
   function el(tag, cls){ var e = document.createElement(tag); if (cls) e.className = cls; return e }
   function txt(p, s){ if (s == null) return; p.appendChild(document.createTextNode(String(s))) }
+  function displayMath(s){
+    var value = String(s || '').trim()
+    if (!value) return ''
+    if (value.slice(0, 2) === '$$' && value.slice(-2) === '$$') return value
+    if (value.slice(0, 2) === '\\\\[' && value.slice(-2) === '\\\\]') return value
+    if (value.charAt(0) === '$' && value.charAt(value.length - 1) === '$') return '$$' + value.slice(1, -1).trim() + '$$'
+    if (value.slice(0, 2) === '\\\\(' && value.slice(-2) === '\\\\)') return '$$' + value.slice(2, -2).trim() + '$$'
+    if (value.indexOf('$') >= 0 || value.indexOf('\\\\[') >= 0 || value.indexOf('\\\\(') >= 0) return value
+    return '$$' + value + '$$'
+  }
+  function mathOptions(){
+    return { delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\\\[', right: '\\\\]', display: true },
+      { left: '$', right: '$', display: false },
+      { left: '\\\\(', right: '\\\\)', display: false }
+    ], throwOnError: false }
+  }
 
   var dataEl = $id('course-data')
   var raw = ((dataEl && dataEl.textContent) || '').trim()
@@ -218,12 +200,12 @@ export const RENDER_JS = `(function(){
     } else if (b.type === 'bullets') {
       var ul = el('ul', 'b-bullets'); ;(b.items || []).forEach(function(it){ var li = el('li'); txt(li, it); ul.appendChild(li) }); wrap.appendChild(ul); inner.appendChild(wrap)
     } else if (b.type === 'formula') {
-      var f = el('div', 'b-formula'); txt(f, b.latex || ''); wrap.appendChild(f)
+      var f = el('div', 'b-formula'); txt(f, displayMath(b.latex)); wrap.appendChild(f)
       if (b.note) { var n = el('div', 'b-note'); txt(n, b.note); wrap.appendChild(n) }
       inner.appendChild(wrap)
     } else if (b.type === 'derivation') {
       var d = el('div', 'b-derive')
-      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ds'); var num = el('div', 'b-ds-num'); txt(num, String(si + 1)); row.appendChild(num); var bd = el('div', 'b-ds-body'); txt(bd, st.latex || ''); if (st.why) { var why = el('div', 'b-ds-why'); txt(why, st.why); bd.appendChild(why) } row.appendChild(bd); d.appendChild(row) })
+      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ds'); var num = el('div', 'b-ds-num'); txt(num, String(si + 1)); row.appendChild(num); var bd = el('div', 'b-ds-body'); if (st.latex) { var math = el('div', 'b-ds-latex'); txt(math, displayMath(st.latex)); bd.appendChild(math) } else { txt(bd, st.text || '') } if (st.why) { var why = el('div', 'b-ds-why'); txt(why, st.why); bd.appendChild(why) } row.appendChild(bd); d.appendChild(row) })
       wrap.appendChild(d); inner.appendChild(wrap)
     } else if (b.type === 'example') {
       var ex = el('div', 'b-example')
@@ -430,13 +412,13 @@ export const RENDER_JS = `(function(){
         var item = el('div', 'gloss-pop-item')
         var e = el('div', 'gloss-pop-explain'); txt(e, info.label + '：' + info.explain); item.appendChild(e)
         if (info.formula) {
-          var f = el('div', 'gloss-pop-formula'); txt(f, info.formula); item.appendChild(f)
+          var f = el('div', 'gloss-pop-formula'); txt(f, displayMath(info.formula)); item.appendChild(f)
         }
         pop.appendChild(item)
       })
       pop.classList.add('show')
       if (window.renderMathInElement) {
-        try { window.renderMathInElement(pop, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ], throwOnError: false }) } catch (e) {}
+        try { window.renderMathInElement(pop, mathOptions()) } catch (e) {}
       }
       var r = t.getBoundingClientRect()
       var pw = pop.offsetWidth
@@ -520,7 +502,7 @@ export const RENDER_JS = `(function(){
 
   function renderMath(){
     if (window.renderMathInElement) {
-      try { window.renderMathInElement(document.body, { delimiters: [ { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false } ], throwOnError: false }) } catch(e) {}
+      try { window.renderMathInElement(document.body, mathOptions()) } catch(e) {}
     }
   }
 
@@ -567,34 +549,6 @@ export const RENDER_JS = `(function(){
   else { window.addEventListener('load', function(){ setTimeout(boot, 40) }) }
 })()
 `
-
-export const INDEX_CSS = `body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif;background:#f7f8fb;color:#1c2333;margin:0;line-height:1.7}
-.wrap{max-width:980px;margin:0 auto;padding:32px 20px}
-h1{font-size:26px}
-.ix-card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px 20px;margin:12px 0;box-shadow:0 1px 3px rgba(16,24,40,.05)}
-.ix-card a{color:#4f46e5;text-decoration:none;font-size:18px;font-weight:600}
-.ix-meta{color:#6b7280;font-size:13px;margin-top:4px}
-.ix-gloss{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:6px 14px;margin:2px 0 14px;text-decoration:none;font-weight:600;font-size:14px}
-.ix-gloss:hover{background:#e0e7ff}
-.ix-empty{color:#6b7280}`
-
-export const IX_JS = `(function(){
-  var ABS = '/study-assistant/file?p='
-  document.addEventListener('click', function(ev){
-    var t = ev.target
-    var a = t && t.closest ? t.closest('a.ix-open') : null
-    if (!a) return
-    if (location.protocol === 'file:') return
-    ev.preventDefault()
-    var abs = a.getAttribute('data-abs') || ''
-    var go = function(url){ var w = window.open(url, '_blank'); if (!w) location.href = url }
-    if (!abs) { go(a.getAttribute('href')) ; return }
-    fetch('/api/study-assistant/resolve-course?p=' + encodeURIComponent(abs))
-      .then(function(r){ return r.json() })
-      .then(function(j){ go(j.url || ABS + encodeURIComponent(abs)) })
-      .catch(function(){ go(ABS + encodeURIComponent(abs)) })
-  })
-})()`
 
 export const PY = `import sys, json, os, io, zlib, zipfile, base64, contextlib
 import xml.etree.ElementTree as ET

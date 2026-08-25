@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import test from 'node:test'
 import { callLlm, parseSseLine, testLlm } from '../server/llm.js'
-import { findFigureTeachingProblems, normalizeCourseSlides, paginateCourseSlides, parseCourse, parseCourseArray } from '../server/parse.js'
+import { deduplicateCourseSlides, findFigureTeachingProblems, normalizeCourseSlides, normalizeDisplayLatex, paginateCourseSlides, parseCourse, parseCourseArray } from '../server/parse.js'
 import { bindEvidenceSlides, replaceFigureTeachingOnly } from '../server/pipeline.js'
 
 test('思考模型的 reasoning_content 不会污染最终 JSON', async t => {
@@ -160,6 +160,24 @@ test('渲染前会过滤空白或未知内容块并兼容简写例题', () => {
   assert.equal(slides[0].blocks[0].problem, '计算 1+1')
 })
 
+test('裸 LaTeX 在生成结果进入渲染前会补全展示定界符', () => {
+  assert.equal(normalizeDisplayLatex('\\sigma(c \\cdot w)'), '$$\\sigma(c \\cdot w)$$')
+  assert.equal(normalizeDisplayLatex('$x+y$'), '$$x+y$$')
+  assert.equal(normalizeDisplayLatex('\\[x+y\\]'), '\\[x+y\\]')
+  assert.equal(normalizeDisplayLatex('两个结果分别是 $x$ 和 $y$'), '两个结果分别是 $x$ 和 $y$')
+  assert.equal(normalizeDisplayLatex('```latex\n\\frac{a}{b}\n```'), '$$\\frac{a}{b}$$')
+
+  const slides = normalizeCourseSlides([{
+    title: '公式归一化',
+    blocks: [
+      { type: 'formula', latex: '\\frac{1}{1+\\exp(-x)}', note: 'sigmoid' },
+      { type: 'derivation', steps: [{ latex: '\\frac{\\partial L}{\\partial w}', why: '应用链式法则' }] },
+    ],
+  }])
+  assert.equal(slides[0].blocks[0].latex, '$$\\frac{1}{1+\\exp(-x)}$$')
+  assert.equal(slides[0].blocks[1].steps[0].latex, '$$\\frac{\\partial L}{\\partial w}$$')
+})
+
 test('表格与图片只能绑定到解析器提供的证据，表格数值由原始提取结果覆盖', () => {
   const normalized = normalizeCourseSlides([{ title: '结构化证据', blocks: [
     { type: 'table', sourceTableId: 'S1-P3-T1', headers: [], rows: [], caption: '模型说明' },
@@ -236,4 +254,44 @@ test('很短的同标题续页会合回前页并由单页纵向滚动承载', ()
   ])
   assert.equal(slides.length, 1)
   assert.equal(slides[0].blocks.length, 4)
+})
+
+test('跨小节同图同结论且没有新增原页依据时删除重复页', () => {
+  const slides = deduplicateCourseSlides([
+    { kind: 'cover' },
+    {
+      title: '给词向量加权并度量相似度：TF-IDF 加权和余弦相似度（续）',
+      sourceAnchors: ['S1:PAGE 23'],
+      blocks: [{
+        type: 'figure', assetId: 'S1-P23-F2', caption: '二维平面上的词向量',
+        guide: [{ label: '看坐标轴', content: '横轴是 data，纵轴是 computer。' }],
+        takeaway: '两个词向量方向越接近，余弦相似度越高，说明两个词越相关。',
+      }],
+    },
+    {
+      title: 'TF-IDF 加权与余弦相似度（续）',
+      sourceAnchors: [],
+      blocks: [{
+        type: 'figure', assetId: 'S1-P23-F2', caption: '二维平面上的两个词向量',
+        guide: [{ label: '比较两个方向', content: '两个向量方向接近，因此余弦相似度高。' }],
+        takeaway: '向量方向越接近，余弦相似度越高，表示两个词越相关。',
+      }],
+    },
+  ])
+  assert.equal(slides.length, 2)
+  assert.deepEqual(slides[1].sourceAnchors, ['S1:PAGE 23'])
+})
+
+test('同一资料图讲解不同区域并产生不同结论时允许复用', () => {
+  const slides = deduplicateCourseSlides([
+    {
+      title: '先读网络输入层', sourceAnchors: ['S1:PAGE 8'],
+      blocks: [{ type: 'figure', assetId: 'S1-P8-F1', guide: [{ label: '左侧输入', content: '输入节点接收特征。' }], takeaway: '左侧表示模型接收的特征。' }],
+    },
+    {
+      title: '再沿反向箭头计算梯度', sourceAnchors: ['S1:PAGE 9'],
+      blocks: [{ type: 'figure', assetId: 'S1-P8-F1', guide: [{ label: '右侧反向箭头', content: '梯度从损失向隐藏层传播。' }], takeaway: '反向箭头表示梯度逐层传播。' }],
+    },
+  ])
+  assert.equal(slides.length, 2)
 })

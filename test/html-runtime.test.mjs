@@ -30,6 +30,9 @@ test('HTML 课件内嵌 KaTeX/Reveal 和字体，可以脱离本地服务双击�
   assert.doesNotMatch(html, /url\(fonts\//)
   assert.doesNotMatch(html, /<(?:link|script)[^>]+(?:href|src)=/)
   assert.doesNotMatch(html, /cdn\.jsdelivr\.net/)
+  assert.match(RENDER_JS, /displayMath\(b\.latex\)/)
+  assert.match(RENDER_JS, /el\('div', 'b-ds-latex'\)/)
+  assert.match(RENDER_JS, /renderMathInElement\(document\.body, mathOptions\(\)\)/)
 })
 
 test('术语标注会跳过公式，避免拆断 LaTeX 定界符', () => {
@@ -65,6 +68,16 @@ test('术语包含中英文与缩写，重复缩写保留多义项而不合并',
   assert.match(html, /隐私增强（Privacy Enhancing\/PE）/)
 })
 
+test('术语解释会移除重复的中文英文标签', () => {
+  const normalized = normalizeGlossaryList([{
+    term: '传输', english: 'transmission', abbr: '',
+    explain: '传输（transmission）：信息如何从一个地方传到另一个地方',
+  }])
+  assert.equal(normalized[0].explain, '信息如何从一个地方传到另一个地方')
+  const html = buildGlossaryHtml(normalized)
+  assert.doesNotMatch(html, /传输（transmission）：传输（transmission）/)
+})
+
 test('术语按规范名和别名去重，但绝不按重复缩写合并', () => {
   const caseVariants = normalizeGlossaryList([
     { term: 'word2vec', english: 'Word2Vec', explain: '把词表示成向量' },
@@ -96,8 +109,16 @@ test('模型术语结果为空时，只从课件已有的明确中英对照恢�
   }])
   assert.deepEqual(recovered.map(item => item.term), ['词嵌入'])
   assert.equal(recovered[0].english, 'word embedding')
+  assert.match(recovered[0].explain, /^把离散词语映射为连续向量/)
   assert.match(recovered[0].explain, /映射为连续向量/)
   assert.equal(recovered.some(item => item.term === '优化器'), false)
+
+  const transmission = deriveGlossaryFromSlides([{
+    title: '信息论的研究对象',
+    blocks: [{ type: 'text', content: '传输（transmission）：信息如何从一个地方传到另一个地方。' }],
+  }])
+  assert.deepEqual(transmission.map(item => item.term), ['传输'])
+  assert.equal(transmission[0].explain, '信息如何从一个地方传到另一个地方。')
 })
 
 test('启动时会就地恢复空课程术语库，并同步 plan 与已有 HTML', t => {
@@ -298,4 +319,6 @@ test('渲染自检逐页激活 Reveal 幻灯片后再测量隐藏页', () => {
   assert.match(checkSource, /window\.Reveal\.slide\(i, 0, 0\)/)
   assert.match(checkSource, /requestAnimationFrame\(\(\) => requestAnimationFrame\(resolve\)\)/)
   assert.match(checkSource, /awaitPromise: true/)
+  assert.match(checkSource, /\.b-formula,\.b-ds-latex/)
+  assert.match(checkSource, /公式未渲染/)
 })

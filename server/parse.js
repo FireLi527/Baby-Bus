@@ -50,6 +50,24 @@ export function parseCourseArray(raw) {
 
 function textValue(value) { return typeof value === 'string' ? value.trim() : '' }
 
+/**
+ * formula/derivation 的 latex 字段表示独立数学表达式。模型偶尔只返回
+ * `\frac{a}{b}` 而省略定界符；在进入审核和渲染前统一补成展示公式。
+ */
+export function normalizeDisplayLatex(value) {
+  let latex = textValue(value)
+  if (!latex) return ''
+  const fenced = /^```(?:latex|tex|math)?\s*([\s\S]*?)\s*```$/i.exec(latex)
+  if (fenced) latex = fenced[1].trim()
+  if (!latex) return ''
+  if (latex.startsWith('$$') && latex.endsWith('$$')) return latex
+  if (latex.startsWith('\\[') && latex.endsWith('\\]')) return latex
+  if (latex.startsWith('$') && latex.endsWith('$')) return '$$' + latex.slice(1, -1).trim() + '$$'
+  if (latex.startsWith('\\(') && latex.endsWith('\\)')) return '$$' + latex.slice(2, -2).trim() + '$$'
+  if (/\$\$[\s\S]+?\$\$|(^|[^\\])\$[^$\n]+\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)/.test(latex)) return latex
+  return '$$' + latex + '$$'
+}
+
 function lineCount(value, width = 52) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim()
   return Math.max(1, Math.ceil(text.length / width))
@@ -166,6 +184,105 @@ function continuationBase(title) {
   return String(title || '').replace(/(?:（续）)+$/, '')
 }
 
+function duplicateText(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/(?:（续）|\(续\)|\bcontinued\b)/gi, '')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+}
+
+function blockTeachingText(block) {
+  if (!block || typeof block !== 'object') return ''
+  if (block.type === 'figure') {
+    return [block.caption, block.alt, ...(block.guide || []).flatMap(item => [item && item.label, item && item.content]), block.takeaway].join(' ')
+  }
+  if (block.type === 'table') return [block.caption, ...(block.headers || []), ...(block.rows || []).flat()].join(' ')
+  if (block.type === 'bullets') return (block.items || []).join(' ')
+  if (['derivation', 'walkthrough', 'example'].includes(block.type)) {
+    return [block.problem, block.title, ...(block.steps || []).map(stepText), block.answer, block.note].join(' ')
+  }
+  return [block.title, block.content, block.latex, block.note].join(' ')
+}
+
+function characterNgrams(value, size = 2) {
+  const text = duplicateText(value)
+  if (!text) return new Set()
+  if (text.length <= size) return new Set([text])
+  const grams = new Set()
+  for (let index = 0; index <= text.length - size; index++) grams.add(text.slice(index, index + size))
+  return grams
+}
+
+function textSimilarity(left, right) {
+  const a = characterNgrams(left)
+  const b = characterNgrams(right)
+  if (!a.size || !b.size) return 0
+  let intersection = 0
+  for (const item of a) if (b.has(item)) intersection++
+  return intersection / (a.size + b.size - intersection)
+}
+
+function slideFigureIds(slide) {
+  return [...new Set((slide && slide.blocks || []).filter(block => block && block.type === 'figure' && block.assetId).map(block => block.assetId))]
+}
+
+function slideExactKey(slide) {
+  const blocks = (slide && slide.blocks || []).map(block => ({
+    type: block && block.type,
+    text: duplicateText(blockTeachingText(block)),
+    assetId: block && block.assetId || '',
+    sourceTableId: block && block.sourceTableId || '',
+  }))
+  const anchors = [...new Set((Array.isArray(slide && slide.sourceAnchors) ? slide.sourceAnchors : []).map(value => String(value || '').trim()).filter(Boolean))].sort()
+  const agenda = Number.isInteger(slide && slide.agendaIndex) ? slide.agendaIndex : ''
+  return duplicateText(continuationBase(slide && slide.title)) + '|' + JSON.stringify(blocks) + '|' + anchors.join(',') + '|agenda:' + agenda
+}
+
+function isRedundantFigureSlide(previous, current) {
+  const previousIds = slideFigureIds(previous)
+  const currentIds = slideFigureIds(current)
+  if (!previousIds.length || previousIds.join('|') !== currentIds.join('|')) return false
+  const previousText = (previous.blocks || []).map(blockTeachingText).join(' ')
+  const currentText = (current.blocks || []).map(blockTeachingText).join(' ')
+  const titleSimilarity = textSimilarity(continuationBase(previous.title), continuationBase(current.title))
+  const bodySimilarity = textSimilarity(previousText, currentText)
+  const previousTakeaway = (previous.blocks || []).filter(block => block && block.type === 'figure').map(block => block.takeaway).join(' ')
+  const currentTakeaway = (current.blocks || []).filter(block => block && block.type === 'figure').map(block => block.takeaway).join(' ')
+  const takeawaySimilarity = textSimilarity(previousTakeaway, currentTakeaway)
+  const previousAnchors = Array.isArray(previous.sourceAnchors) ? previous.sourceAnchors.filter(Boolean).length : 0
+  const currentAnchors = Array.isArray(current.sourceAnchors) ? current.sourceAnchors.filter(Boolean).length : 0
+  const noNewEvidence = previousAnchors > 0 && currentAnchors === 0
+  return takeawaySimilarity >= 0.58 || (titleSimilarity >= 0.55 && bodySimilarity >= 0.42) || (noNewEvidence && Math.max(titleSimilarity, bodySimilarity, takeawaySimilarity) >= 0.38)
+}
+
+/**
+ * 保守删除模型跨小节生成的重复页：完全相同的内容直接去重；同一资料图只有在
+ * 标题/讲解/结论近似且没有新增原页依据时才合并。不同焦点、不同推导仍会保留。
+ */
+export function deduplicateCourseSlides(value) {
+  if (!Array.isArray(value)) return []
+  const result = []
+  const exactKeys = new Set()
+  const figureIndexes = new Map()
+  for (const slide of value) {
+    if (!slide || slide.kind === 'cover') { result.push(slide); continue }
+    const exactKey = slideExactKey(slide)
+    if (exactKey && exactKeys.has(exactKey)) continue
+    const ids = slideFigureIds(slide)
+    const candidates = ids.length ? (figureIndexes.get(ids.join('|')) || []) : []
+    if (candidates.some(index => isRedundantFigureSlide(result[index], slide))) continue
+    const resultIndex = result.length
+    result.push(slide)
+    if (exactKey) exactKeys.add(exactKey)
+    if (ids.length) {
+      const signature = ids.join('|')
+      figureIndexes.set(signature, [...candidates, resultIndex])
+    }
+  }
+  return result
+}
+
 function coalesceSparseContinuations(slides, softLimit = 780) {
   const result = []
   for (const slide of slides) {
@@ -230,10 +347,19 @@ export function normalizeCourseSlides(value) {
         const items = Array.isArray(rawBlock.items) ? rawBlock.items.map(textValue).filter(Boolean) : []
         if (items.length) blocks.push({ ...rawBlock, type, items })
       } else if (type === 'formula') {
-        const latex = textValue(rawBlock.latex)
+        const latex = normalizeDisplayLatex(rawBlock.latex)
         if (latex) blocks.push({ ...rawBlock, type, latex, note: textValue(rawBlock.note) })
       } else if (type === 'derivation') {
-        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(step => typeof step === 'string' ? { text: step } : step).filter(step => step && (textValue(step.latex) || textValue(step.text))) : []
+        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(step => {
+          if (typeof step === 'string') return { text: textValue(step) }
+          if (!step || typeof step !== 'object') return null
+          return {
+            ...step,
+            latex: normalizeDisplayLatex(step.latex),
+            text: textValue(step.text),
+            why: textValue(step.why),
+          }
+        }).filter(step => step && (step.latex || step.text)) : []
         if (steps.length) blocks.push({ ...rawBlock, type, steps })
       } else if (type === 'walkthrough') {
         const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(step => typeof step === 'string' ? { text: step } : step).filter(step => step && textValue(step.text)) : []

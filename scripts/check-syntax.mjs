@@ -6,9 +6,16 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDirs = ['server', 'scripts', 'tools', 'test']
-const files = sourceDirs.flatMap(dir => fs.readdirSync(path.join(root, dir), { withFileTypes: true })
-  .filter(entry => entry.isFile() && /\.(?:c?js|mjs)$/.test(entry.name))
-  .map(entry => path.join(root, dir, entry.name)))
+
+function nodeSources(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const target = path.join(dir, entry.name)
+    if (entry.isDirectory()) return nodeSources(target)
+    return entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name) ? [target] : []
+  })
+}
+
+const files = sourceDirs.flatMap(dir => nodeSources(path.join(root, dir))).sort()
 for (const file of files) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })
   if (result.status !== 0) {

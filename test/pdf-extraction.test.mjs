@@ -124,7 +124,7 @@ doc.save(sys.argv[1])
           { type: 'figure', assetId: 'S1-P1-F1', caption: '输入到输出流程', alt: '流程图' },
         ] }])
       }
-      if (prompt.includes('你只负责分析一张来自课程资料的图片')) {
+      if (prompt.includes('【任务：单图阅读指引】')) {
         figureAnalysisCalls++
         assert.equal(opts.images.length, 1, '每次定向分析只能携带当前一张图片')
         assert.match(prompt, /只输出 JSON 对象本体/)
@@ -180,7 +180,7 @@ doc.save(sys.argv[1])
         degradedSectionCalls++
         return JSON.stringify([{ title: '流程图', sourceAnchors: ['S1:PAGE 1'], blocks: [{ type: 'figure', assetId: 'S1-P1-F1', caption: '输入到输出流程', alt: '流程图' }] }])
       }
-      if (prompt.includes('你只负责分析一张来自课程资料的图片')) {
+      if (prompt.includes('【任务：单图阅读指引】')) {
         degradedFigureCalls++
         return JSON.stringify({ assetId: 'S1-P1-F1', guide: [{ label: '图片', content: '笼统说明' }], takeaway: '太短' })
       }

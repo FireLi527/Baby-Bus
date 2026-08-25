@@ -26,7 +26,7 @@ test('轻量原生启动器复用系统 Edge，不再捆绑 Electron、VBS 或 H
 
 test('生成链路的 Windows 子进程全部隐藏控制台窗口', () => {
   assert.match(source('launcher/BaobaoBusLauncher.cs'), /WindowStyle = ProcessWindowStyle\.Hidden/)
-  assert.match(source('server/pipeline.js'), /spawnSync\('python',[\s\S]*windowsHide: true/)
+  assert.match(source('server/extraction/extractor.js'), /spawn\('python',[\s\S]*windowsHide: true/)
   assert.match(source('server/routes.js'), /spawn\('powershell\.exe',[\s\S]*windowsHide: true/)
   assert.match(source('server/check.js'), /spawn\(browserPath,[\s\S]*windowsHide: true/)
 })
@@ -76,11 +76,12 @@ test('参考模板抽取默认写入候选文件，不能静默覆盖正式模�
 
 test('生成状态轮询串行执行，并在切换目录时清理旧选择', () => {
   const app = source('client/src/App.jsx')
+  const polling = source('client/src/useJobPolling.js')
   const status = source('client/src/StatusCard.jsx')
-  assert.doesNotMatch(app, /setInterval\(tick/)
-  assert.match(app, /active\.timer = setTimeout\(tick, 1500\)/)
+  assert.doesNotMatch(polling, /setInterval\(tick/)
+  assert.match(polling, /active\.timer = setTimeout\(tick, POLL_DELAY_MS\)/)
   assert.match(app, /setSel\(''\); setSelName\(''\)/)
-  assert.match(app, /return stopPoll/)
+  assert.match(polling, /useEffect\(\(\) => stopPolling/)
   assert.doesNotMatch(app, /可以关闭页面/)
   assert.match(status, /latestStageEvent/)
   assert.match(status, /for \(const e of \[\.\.\.fileTimeline\]\.reverse\(\)\)/)
