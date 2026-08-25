@@ -11,6 +11,7 @@
     "dev:web": "node scripts/dev.mjs",
     "build:web": "vite build",
     "build": "npm run build:web && node scripts/build-launcher.mjs",
+    "release:windows": "node scripts/build-release.mjs",
     "start": "npm run build && node scripts/start-desktop.mjs",
     "server": "node server/index.js",
     "check": "node scripts/check-syntax.mjs",

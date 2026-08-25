@@ -53,6 +53,14 @@ npm run build
 
 `npm start` 会构建并静默拉起同一个桌面启动器。若 Node 不在 `PATH`，可通过 `BAOBAO_NODE` 指定 `node.exe`，也可以将它放到项目的 `runtime/node.exe`；后者会增加分发体积。
 
+GitHub Release 提供已经包含前端、启动器和 Node 生产依赖的 Windows 轻量便携 ZIP。Release 用户解压后无需执行 `npm install` 或构建，安装 Node.js 22.12+ 和 Python 3 后即可双击 `宝宝巴士.exe`。PDF 文本、表格和图片提取还需要执行：
+
+```bash
+pip install -r requirements.txt
+```
+
+维护者可执行 `npm run release:windows` 生成经过内容白名单检查的 ZIP 和 SHA-256 校验文件；发布包不会包含 `data/` 中的资料、`reference/`、本机配置、API Key 或开发依赖。
+
 ### 开发模式
 
 开发环境需要 **Node.js 22.12+** 和 **Python 3**。
