@@ -1,0 +1,31 @@
+{
+  "name": "baobao-bus",
+  "productName": "宝宝巴士",
+  "version": "0.1.0",
+  "description": "本地课件整理与生成工具",
+  "author": "宝宝巴士 contributors",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "node scripts/dev.mjs",
+    "build:web": "vite build",
+    "build": "npm run build:web && node scripts/build-launcher.mjs",
+    "start": "npm run build && node scripts/start-desktop.mjs",
+    "server": "node server/index.js",
+    "check": "node scripts/check-syntax.mjs",
+    "check:courses": "node scripts/check-existing-html.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "katex": "^0.18.4",
+    "reveal.js": "^5.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^8.2.2"
+  }
+}

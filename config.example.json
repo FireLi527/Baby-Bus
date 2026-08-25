@@ -1,0 +1,10 @@
+{
+  "port": 8787,
+  "llm": {
+    "baseUrl": "https://api.deepseek.com/v1",
+    "apiKey": "",
+    "model": "deepseek-chat"
+  },
+  "edgePath": "",
+  "enableSelfCheck": true
+}
