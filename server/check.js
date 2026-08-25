@@ -23,8 +23,13 @@ export function findBrowser(cfgEdgePath) {
 
 export function collectLayoutProblems(metrics) {
   const problems = []
-  for (const p of metrics.per || []) {
-    if (p.page > 1 && p.fill < 35 && !['本讲内容', '学习目标', '小结', '资料来源'].includes(p.title) && !String(p.title || '').startsWith('术语表')) problems.push('第' + p.page + '页内容占比' + p.fill + '%（太空）')
+  const pages = metrics.per || []
+  const seriesBase = title => String(title || '').replace(/(?:（续）)+$/, '')
+  for (let index = 0; index < pages.length; index++) {
+    const p = pages[index]
+    const base = seriesBase(p.title)
+    const partOfSeries = !!base && ((index > 0 && seriesBase(pages[index - 1].title) === base) || (index + 1 < pages.length && seriesBase(pages[index + 1].title) === base))
+    if (p.page > 1 && p.fill < 35 && !partOfSeries && !['本讲内容', '学习目标', '小结', '资料来源'].includes(p.title) && !String(p.title || '').startsWith('术语表')) problems.push('第' + p.page + '页内容占比' + p.fill + '%（太空）')
     if (!p.scrollableY && (p.overflowY > 16 || p.clipBottom > 3 || p.clipTop > 3)) problems.push('第' + p.page + '页内容占比' + p.fill + '%（垂直溢出，需拆页）')
     if (p.overflowX > 16 || p.clipLeft > 3 || p.clipRight > 3) problems.push('第' + p.page + '页横向溢出 ' + Math.max(p.overflowX, p.clipLeft, p.clipRight) + 'px')
   }

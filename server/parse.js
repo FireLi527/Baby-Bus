@@ -61,6 +61,11 @@ function stepText(step) {
   return [step.text, step.latex, step.why].filter(Boolean).join(' ')
 }
 
+function figureGuideText(item) {
+  if (!item || typeof item !== 'object') return ''
+  return [item.label, item.content].filter(Boolean).join(' ')
+}
+
 export function estimateBlockHeight(block) {
   if (!block || typeof block !== 'object') return 0
   if (['text', 'intuition', 'analogy', 'note'].includes(block.type)) return 46 + lineCount(block.content) * 30 + (block.title ? 24 : 0)
@@ -70,6 +75,10 @@ export function estimateBlockHeight(block) {
     const rows = Array.isArray(block.rows) ? block.rows : []
     const rowHeight = row => 34 + (Math.max(1, ...row.map(cell => lineCount(cell, 28))) - 1) * 22
     return 42 + rows.reduce((sum, row) => sum + rowHeight(row), 0) + (block.caption ? lineCount(block.caption) * 24 : 0)
+  }
+  if (block.type === 'figure') {
+    const guideHeight = (block.guide || []).reduce((sum, item) => sum + 34 + (lineCount(figureGuideText(item), 44) - 1) * 24, 0)
+    return 390 + guideHeight + (block.caption ? lineCount(block.caption) * 24 : 0) + (block.takeaway ? 34 + lineCount(block.takeaway, 44) * 24 : 0)
   }
   if (block.type === 'derivation') return 16 + (block.steps || []).reduce((sum, step) => sum + 50 + (lineCount(stepText(step)) - 1) * 26, 0)
   if (block.type === 'walkthrough') return 42 + (block.steps || []).reduce((sum, step) => sum + 48 + (lineCount(stepText(step)) - 1) * 26, 0)
@@ -153,6 +162,27 @@ function needsDeterministicPagination(slide) {
   return blocks.length > 4 || maxTableRows > 12 || maxBulletItems > 10 || maxStructuredSteps > 7 || (blocks.length >= 3 && maxTableRows >= 8) || (maxBulletItems >= 6 && maxWalkSteps >= 4)
 }
 
+function continuationBase(title) {
+  return String(title || '').replace(/(?:（续）)+$/, '')
+}
+
+function coalesceSparseContinuations(slides, softLimit = 780) {
+  const result = []
+  for (const slide of slides) {
+    const previous = result[result.length - 1]
+    const currentHeight = (slide && slide.blocks || []).reduce((sum, block) => sum + estimateBlockHeight(block), 0)
+    const previousHeight = (previous && previous.blocks || []).reduce((sum, block) => sum + estimateBlockHeight(block), 0)
+    const sameAgenda = !previous || previous.agendaIndex == null || slide.agendaIndex == null || previous.agendaIndex === slide.agendaIndex
+    const isShortContinuation = previous && /（续）$/.test(String(slide.title || '')) && continuationBase(previous.title) === continuationBase(slide.title) && currentHeight > 0 && currentHeight <= 180
+    if (isShortContinuation && sameAgenda && previousHeight + currentHeight <= softLimit) {
+      previous.blocks = [...(previous.blocks || []), ...(slide.blocks || [])]
+      continue
+    }
+    result.push(slide)
+  }
+  return result
+}
+
 /** 用稳定的尺寸估算拆开过密页；浏览器自检仍负责捕捉字体/公式造成的真实边界问题。 */
 export function paginateCourseSlides(value, budget = 620) {
   if (!Array.isArray(value)) return []
@@ -175,7 +205,7 @@ export function paginateCourseSlides(value, budget = 620) {
     if (pages.length === 1) result.push({ ...slide, blocks: pages[0] })
     else pages.forEach((pageBlocks, index) => result.push({ ...slide, title: index === 0 ? slide.title : slide.title + '（续）', blocks: pageBlocks }))
   }
-  return result
+  return coalesceSparseContinuations(result)
 }
 
 /** 把模型输出收敛到 HTML/PPTX 渲染器真正支持的块，避免“JSON 合法但页面为空”。 */
@@ -211,7 +241,26 @@ export function normalizeCourseSlides(value) {
       } else if (type === 'table') {
         const headers = Array.isArray(rawBlock.headers) ? rawBlock.headers.map(value => String(value ?? '')) : []
         const rows = Array.isArray(rawBlock.rows) ? rawBlock.rows.filter(Array.isArray).map(row => row.map(value => String(value ?? ''))) : []
-        if (headers.length || rows.length) blocks.push({ ...rawBlock, type, headers, rows, caption: textValue(rawBlock.caption) })
+        const sourceTableId = textValue(rawBlock.sourceTableId)
+        if (headers.length || rows.length || sourceTableId) blocks.push({ ...rawBlock, type, headers, rows, caption: textValue(rawBlock.caption), sourceTableId })
+      } else if (type === 'figure') {
+        const assetId = textValue(rawBlock.assetId)
+        if (assetId && /^[A-Za-z0-9_-]{3,96}$/.test(assetId)) {
+          const guide = Array.isArray(rawBlock.guide)
+            ? rawBlock.guide.slice(0, 8).map(item => ({
+                label: textValue(item && item.label),
+                content: textValue(item && (item.content || item.explain)),
+              })).filter(item => item.label && item.content)
+            : []
+          blocks.push({
+            type,
+            assetId,
+            caption: textValue(rawBlock.caption),
+            alt: textValue(rawBlock.alt),
+            guide,
+            takeaway: textValue(rawBlock.takeaway),
+          })
+        }
       } else if (type === 'example') {
         const problem = textValue(rawBlock.problem) || textValue(rawBlock.content)
         const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.filter(step => typeof step === 'string' ? step.trim() : step && (textValue(step.text) || textValue(step.latex))) : []
@@ -221,4 +270,30 @@ export function normalizeCourseSlides(value) {
     if (blocks.length) slides.push({ ...candidate, title, blocks })
   }
   return slides
+}
+
+/**
+ * 图片不是装饰：每张被课件引用的资料图都必须告诉学生阅读顺序、图中部分和结论。
+ * 旧 plan 仍可渲染；这个门禁只在新生成流程中使用，避免静默产出“贴图 + 图注”。
+ */
+export function findFigureTeachingProblems(value) {
+  const problems = []
+  for (let slideIndex = 0; slideIndex < (Array.isArray(value) ? value.length : 0); slideIndex++) {
+    const slide = value[slideIndex]
+    for (const block of (slide && Array.isArray(slide.blocks) ? slide.blocks : [])) {
+      if (!block || block.type !== 'figure') continue
+      const guide = Array.isArray(block.guide) ? block.guide.filter(item => item && textValue(item.label) && textValue(item.content)) : []
+      const guideChars = guide.reduce((sum, item) => sum + textValue(item.label).length + textValue(item.content).length, 0)
+      const takeaway = textValue(block.takeaway)
+      if (guide.length < 2 || guideChars < 50 || takeaway.length < 10) {
+        problems.push({
+          page: slideIndex + 1,
+          assetId: textValue(block.assetId),
+          title: textValue(slide && slide.title),
+          note: '图片必须至少逐项讲解两个可见部分或步骤（合计不少于 50 字），并给出一句图中结论；图注和 alt 不算讲解。',
+        })
+      }
+    }
+  }
+  return problems
 }

@@ -16,7 +16,7 @@ export const SYS = `你是一位能把高深知识讲成「大白话」的中文
 术语称呼规则：中文课件正文和标题优先使用准确中文名称，不把英文缩写当主要称呼。只有为对应资料原文或避免歧义确有必要时，首次出现可写“中文名称（英文全称，缩写）”；后文继续使用中文名称。资料没有明确给出缩写时不得发明缩写。
 联系铁律：每个新概念都要说明它和你已熟悉的东西的关系（「它其实就是 X 的推广」「它和常识中 X 的区别是……」）。
 数学铁律：所有数学一律用 LaTeX：行内 $...$，独立公式 $$...$$。包括例题步骤、walkthrough 步骤、表格单元格里的数学也必须用 LaTeX；严禁 log_2 p、D_KL(p||q)、x_i 写成 xi 这类下划线、字母数字连写的文本数学。
-篇幅铁律：一页 = 一个完整知识点或一段完整推导，通常 2~4 个内容块；推导超过 4 步、例题超过 3 步、单页文字超过约 150 字必须拆页。
+篇幅铁律：一页 = 一个完整知识点或一段完整推导，通常 2~5 个内容块；HTML 页面支持纵向下拉，不设 150 字硬上限。内容明显过密时增加页面或拆分推导，绝不能为了控制页数删除资料已有的理论、公式、条件或推导步骤。
 
 JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
 {
@@ -31,7 +31,8 @@ JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
         { "type": "formula", "latex": "$$...$$", "note": "逐符号含义" },
         { "type": "derivation", "steps": [ { "latex": "$...$", "why": "这一步的依据" } ] },
         { "type": "walkthrough", "title": "代入数值验证", "steps": [ { "text": "第1步：代入 p=0.5，得到 $0.5 \\\\times 2 = 1$" } ] },
-        { "type": "table", "headers": ["列1", "列2"], "rows": [["值", "值"]], "caption": "表说明" },
+        { "type": "table", "sourceTableId": "S1-P3-T1", "headers": ["列1", "列2"], "rows": [["值", "值"]], "caption": "表说明" },
+        { "type": "figure", "assetId": "S1-P5-F1", "caption": "资料中的图题或简短说明", "alt": "图像内容", "guide": [ { "label": "先看左侧", "content": "说明图中左侧可见元素是什么、承担什么作用" }, { "label": "再沿箭头看", "content": "说明箭头、颜色或前后部分之间的关系" } ], "takeaway": "用一句话说出从这张图应该得到的结论" },
         { "type": "example", "problem": "题目", "steps": ["步骤1", "步骤2"], "answer": "答案", "note": "启示" },
         { "type": "note", "title": "易错点", "content": "最容易被误解的地方，并解释为什么直觉想错" }
     ]}
@@ -46,7 +47,8 @@ JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
 - formula：仅用于资料正文明确出现的独立公式（latex 用 $$...$$），note 逐符号解释含义；资料无公式则不用此块。
 - derivation：完整推导，steps 每步给 latex 与 why（依据、从什么得到什么）。
 - walkthrough：仅复现资料正文已有的数值演算，steps 保留「代入什么值 + 算得什么」及原条件。
-- table：具体数据表（计数表、频数表等）。
+- table：具体数据表（计数表、频数表等）。资料中出现 TABLE ASSET 时必须填写准确 sourceTableId，单元格会由程序按提取结果校正，禁止改数。
+- figure：只用于资料中出现 FIGURE ASSET 的可提取原图，assetId 必须逐字复制；不得发明 assetId、不得用文字想象或补画资料中不存在的图。caption 只是图注，不算讲解；每个 figure 都必须带 guide（至少两个“可见部分/阅读步骤 + 解释”）和 takeaway（一句图中结论）。讲解应明确指向图里的文字、编号、坐标轴、颜色、框、箭头、公式或前后关系，让学生知道从哪里开始看、各部分表示什么、最后说明什么。
 - example：仅复现资料正文已有的例题或案例；steps、answer 与条件必须来自资料，不得另编题目。
 - note：高亮注意点 / 易错点（重点讲「为什么直觉会错」）。
 
@@ -55,11 +57,13 @@ JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
 2. 不强制每页出现数字、公式、例题或练习；类比只作解释，不能冒充资料事实或论文证据。
 3. 不要翻译、不要总结课件：要讲解。追问每一个「为什么」并把答案写出来。
 4. 术语中英对照：正文优先用中文名称，尽量不用缩写；英文全称和资料明确给出的缩写收进可点击术语提示及学习中心的独立术语库，不在单份课件末尾追加术语表页；公式符号仍需逐个解释；末尾 1~2 页小结。
-5. 一页 2~4 个内容块；超量拆页；不写「学习方法」等元说明。
+5. 一页通常 2~5 个内容块；过密就增加页面或拆页，不得删减资料内容；不写「学习方法」等元说明。
+6. 资料图承担定义、流程、比较、公式推导或证据作用时，不能只贴图和写图注。复杂图可以拆成多页逐步讲，但每次复用都要明确说明本页聚焦的不同区域或新增步骤；禁止连续重复同一张或近似渐进图而只更换标题、图注。
 
 【最高优先级：资料忠实性】
 - 例题、案例、公式、实验数据、推导步骤和研究结论只能使用输入资料正文已有的内容，不得根据常识补全或自行设计。
 - 论文/文献模式不强制出题、练习、数值演算或公式；没有这些内容时，用文字、要点或资料中的表格讲清即可。
+- 资料片段若给出 TABLE ASSET 或 FIGURE ASSET，且它直接支撑当前知识点，应优先用 table 或 figure 块忠实呈现；没有资源标记时绝不生成 figure。
 - 遇到独立标题 References、Bibliography、Works Cited 或“参考文献”时，视为论文正文已经结束：其后的文献条目全部跳过，不进入大纲、正文、例题、公式或术语表。
 
 只输出 JSON 对象本体。`
@@ -112,10 +116,22 @@ body.ready{opacity:1}
 .b-ex-note{color:var(--mut);font-size:14px;padding:2px 16px 11px;line-height:1.6}
 .b-note-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.22);border-left:4px solid var(--cyan);border-radius:12px;padding:14px 18px;margin:10px 0;font-size:16.5px;line-height:1.75;color:#dff4f8}
 .b-note-box b{display:block;color:var(--cyan);margin-bottom:4px}
+.b-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:rgba(129,140,248,.72) rgba(255,255,255,.08)}
 .b-table{border-collapse:collapse;margin:10px 0;font-size:16.5px;min-width:300px;color:#e2e6f7}
 .b-table th,.b-table td{border:1px solid var(--line);padding:8px 14px;text-align:center}
 .b-table th{background:rgba(139,92,246,.18);font-weight:700;color:#e9e3ff}
 .b-table-cap{color:var(--mut);font-size:14px;margin-top:4px}
+.b-figure{margin:12px auto 8px;max-width:100%;text-align:center}
+.b-figure-frame{display:flex;align-items:center;justify-content:center;min-height:120px;max-height:410px;padding:10px;background:rgba(255,255,255,.96);border:1px solid rgba(139,92,246,.38);border-radius:14px;overflow:hidden;box-shadow:0 8px 28px rgba(0,0,0,.3)}
+.b-figure img{display:block;max-width:100%;max-height:390px;width:auto;height:auto;object-fit:contain}
+.b-figure figcaption{margin-top:7px;color:var(--mut);font-size:14px;line-height:1.55}
+.b-figure-guide{margin:10px 0 2px;padding:12px 14px;text-align:left;background:rgba(99,102,241,.09);border:1px solid rgba(129,140,248,.3);border-radius:12px}
+.b-figure-guide-title{color:#c7d2fe;font-size:15px;font-weight:800;margin-bottom:6px}
+.b-figure-guide-row{display:grid;grid-template-columns:minmax(92px,auto) 1fr;gap:10px;padding:7px 0;border-bottom:1px dashed rgba(165,180,252,.18);font-size:15px;line-height:1.65}
+.b-figure-guide-row:last-of-type{border-bottom:none}
+.b-figure-guide-label{color:#67e8f9;font-weight:750}
+.b-figure-guide-content{color:#dbe3f7}
+.b-figure-takeaway{margin-top:8px;padding-top:8px;border-top:1px solid rgba(52,211,153,.25);color:#a7f3d0;font-size:15px;line-height:1.65}
 .katex{font-size:1.06em;color:inherit}
 .katex-display{margin:.55em 0}
 .present .dsh-anim{animation:dshUp .55s cubic-bezier(.22,.61,.36,1) both}
@@ -147,6 +163,22 @@ body.dsh-fallback{overflow:auto}
 .gloss-pop-explain{font-size:14px;line-height:1.6;color:#e8ebf7}
 .gloss-pop-formula{margin-top:8px;padding-top:8px;border-top:1px solid rgba(139,92,246,.35)}
 .gloss-pop-formula .katex{color:#e2e8f0;font-size:1.05em}
+.agenda-nav{position:fixed;z-index:80;left:14px;top:14px;bottom:14px;width:284px;box-sizing:border-box;padding:18px 14px 14px;background:rgba(10,14,34,.94);border:1px solid rgba(139,92,246,.38);border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,.48);backdrop-filter:blur(14px);transform:translateX(calc(-100% - 24px));transition:transform .22s ease;overflow:auto;overscroll-behavior:contain}
+body.agenda-open .agenda-nav{transform:none}
+.agenda-title{font-size:14px;font-weight:800;color:#f3f0ff;margin:0 42px 12px 4px;letter-spacing:.04em}
+.agenda-list{display:flex;flex-direction:column;gap:8px}
+.agenda-item{appearance:none;width:100%;border:1px solid transparent;border-radius:11px;padding:10px 11px;text-align:left;background:transparent;color:#cbd2eb;cursor:pointer;font:inherit;transition:background .16s,border-color .16s,color .16s}
+.agenda-item:hover{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.25);color:#fff}
+.agenda-item.active{background:linear-gradient(135deg,rgba(139,92,246,.24),rgba(34,211,238,.11));border-color:rgba(129,140,248,.55);color:#fff}
+.agenda-item-title{display:block;font-size:14px;font-weight:750;line-height:1.45}
+.agenda-item-meta{display:block;margin-top:4px;color:#8f99be;font-size:11px;line-height:1.35}
+.agenda-item-points{display:block;margin-top:5px;color:#aeb6d3;font-size:11px;line-height:1.45;white-space:normal}
+.agenda-toggle{position:fixed;z-index:82;left:14px;top:18px;width:42px;height:42px;border:1px solid rgba(139,92,246,.48);border-radius:12px;background:rgba(13,18,40,.94);color:#e8ebf7;cursor:pointer;font-size:20px;line-height:1;box-shadow:0 8px 22px rgba(0,0,0,.32);transition:left .22s ease,background .16s}
+body.agenda-open .agenda-toggle{left:242px;background:rgba(49,46,129,.9)}
+.agenda-toggle:hover{background:rgba(79,70,229,.9)}
+@media(min-width:1400px){body.agenda-open .reveal{width:calc(100% - 310px);margin-left:310px}}
+@media(max-width:780px){.agenda-nav{width:min(86vw,320px)}body.agenda-open .agenda-toggle{left:min(calc(86vw - 42px),278px)}}
+@media print{.agenda-nav,.agenda-toggle{display:none!important}}
 `
 
 export const RENDER_JS = `(function(){
@@ -175,6 +207,7 @@ export const RENDER_JS = `(function(){
 
   var deck = $id('deck')
   var slides = course.slides || []
+  var assets = course.assets && typeof course.assets === 'object' ? course.assets : {}
   var ANIM = 'dsh-anim'
 
   function block(b, inner, bi) {
@@ -205,9 +238,36 @@ export const RENDER_JS = `(function(){
       var tbody = el('tbody')
       ;(b.rows || []).forEach(function(r){ var tr2 = el('tr'); r.forEach(function(c){ var td = el('td'); txt(td, c); tr2.appendChild(td) }); tbody.appendChild(tr2) })
       tbl.appendChild(tbody)
-      wrap.appendChild(tbl)
+      var tableScroll = el('div', 'b-table-scroll'); tableScroll.appendChild(tbl); wrap.appendChild(tableScroll)
       if (b.caption) { var cap = el('div', 'b-table-cap'); txt(cap, b.caption); wrap.appendChild(cap) }
       inner.appendChild(wrap)
+    } else if (b.type === 'figure') {
+      var asset = assets[b.assetId]
+      var dataUrl = asset && String(asset.dataUrl || '')
+      if (dataUrl.indexOf('data:image/') === 0 && /;base64,/i.test(dataUrl)) {
+        var fig = el('figure', 'b-figure')
+        var frame = el('div', 'b-figure-frame')
+        var img = el('img')
+        img.src = dataUrl
+        img.alt = b.alt || asset.alt || b.caption || asset.caption || '资料原图'
+        frame.appendChild(img); fig.appendChild(frame)
+        var caption = b.caption || asset.caption || ''
+        if (caption) { var fc = el('figcaption'); txt(fc, caption); fig.appendChild(fc) }
+        var guide = Array.isArray(b.guide) ? b.guide : []
+        if (guide.length || b.takeaway) {
+          var guideBox = el('div', 'b-figure-guide')
+          var guideTitle = el('div', 'b-figure-guide-title'); txt(guideTitle, '怎么看这张图'); guideBox.appendChild(guideTitle)
+          guide.forEach(function(item){
+            var row = el('div', 'b-figure-guide-row')
+            var label = el('div', 'b-figure-guide-label'); txt(label, item && item.label || '图中部分'); row.appendChild(label)
+            var content = el('div', 'b-figure-guide-content'); txt(content, item && item.content || ''); row.appendChild(content)
+            guideBox.appendChild(row)
+          })
+          if (b.takeaway) { var takeaway = el('div', 'b-figure-takeaway'); txt(takeaway, '图中结论：' + b.takeaway); guideBox.appendChild(takeaway) }
+          fig.appendChild(guideBox)
+        }
+        wrap.appendChild(fig); inner.appendChild(wrap)
+      }
     } else if (b.type === 'intuition') {
       var ib = el('div', 'b-intuition')
       var t1 = el('b'); txt(t1, '直觉'); ib.appendChild(t1)
@@ -250,6 +310,71 @@ export const RENDER_JS = `(function(){
     }
     sec.appendChild(inner); deck.appendChild(sec)
   })
+
+  // ── 语义目录：按课程 agenda 跳转，不把每一页都塞进侧栏 ──
+  var setAgendaActive = function(){}
+  ;(function buildAgenda(){
+    var outline = Array.isArray(course.outline) ? course.outline.filter(function(item){ return item && item.heading }) : []
+    if (!outline.length) return
+    var contentIndexes = []
+    slides.forEach(function(slide, index){
+      if (index < 2 || slide.kind === 'cover' || slide.title === '小结' || slide.title === '资料来源') return
+      contentIndexes.push(index)
+    })
+    var firstIndexes = outline.map(function(_, agendaIndex){
+      for (var i = 0; i < slides.length; i++) if (Number(slides[i].agendaIndex) === agendaIndex) return i
+      if (!contentIndexes.length) return Math.min(slides.length - 1, agendaIndex + 1)
+      return contentIndexes[Math.min(contentIndexes.length - 1, Math.floor(agendaIndex * contentIndexes.length / outline.length))]
+    })
+    var lastIndexes = firstIndexes.map(function(first, index){
+      return index + 1 < firstIndexes.length ? Math.max(first, firstIndexes[index + 1] - 1) : (contentIndexes.length ? contentIndexes[contentIndexes.length - 1] : first)
+    })
+    var nav = el('aside', 'agenda-nav')
+    nav.setAttribute('aria-label', '课程目录')
+    var title = el('div', 'agenda-title'); txt(title, '课程目录'); nav.appendChild(title)
+    var list = el('div', 'agenda-list'); nav.appendChild(list)
+    var buttons = []
+    outline.forEach(function(item, agendaIndex){
+      var button = el('button', 'agenda-item')
+      button.type = 'button'
+      button.setAttribute('data-agenda-index', String(agendaIndex))
+      var itemTitle = el('span', 'agenda-item-title'); txt(itemTitle, (agendaIndex + 1) + '. ' + item.heading); button.appendChild(itemTitle)
+      var pageMeta = el('span', 'agenda-item-meta')
+      var firstPage = firstIndexes[agendaIndex] + 1
+      var lastPage = lastIndexes[agendaIndex] + 1
+      txt(pageMeta, firstPage === lastPage ? '第 ' + firstPage + ' 页' : '第 ' + firstPage + '-' + lastPage + ' 页')
+      button.appendChild(pageMeta)
+      var points = Array.isArray(item.keyPoints) ? item.keyPoints.filter(Boolean).slice(0, 3) : []
+      if (points.length) { var detail = el('span', 'agenda-item-points'); txt(detail, points.join(' · ')); button.appendChild(detail) }
+      button.addEventListener('click', function(){
+        var target = firstIndexes[agendaIndex]
+        if (window.Reveal && window.Reveal.slide) window.Reveal.slide(target, 0, 0)
+        else if (deck.children[target]) deck.children[target].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        if (window.innerWidth < 1400) setOpen(false)
+      })
+      buttons.push(button); list.appendChild(button)
+    })
+    var toggle = el('button', 'agenda-toggle')
+    toggle.type = 'button'; toggle.setAttribute('aria-label', '打开或关闭课程目录'); toggle.setAttribute('aria-expanded', 'false'); txt(toggle, '☰')
+    function setOpen(open){
+      document.body.classList.toggle('agenda-open', open)
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+      toggle.textContent = open ? '×' : '☰'
+      if (window.Reveal && window.Reveal.layout) setTimeout(function(){ window.Reveal.layout() }, 240)
+    }
+    toggle.addEventListener('click', function(){ setOpen(!document.body.classList.contains('agenda-open')) })
+    document.body.appendChild(nav); document.body.appendChild(toggle)
+    setOpen(window.innerWidth >= 1400)
+    setAgendaActive = function(slideIndex){
+      var slide = slides[slideIndex] || {}
+      var agendaIndex = Number.isInteger(Number(slide.agendaIndex)) ? Number(slide.agendaIndex) : -1
+      if (agendaIndex < 0) {
+        for (var i = firstIndexes.length - 1; i >= 0; i--) if (slideIndex >= firstIndexes[i] && slideIndex <= lastIndexes[i]) { agendaIndex = i; break }
+      }
+      buttons.forEach(function(button, index){ button.classList.toggle('active', index === agendaIndex) })
+      if (agendaIndex >= 0 && buttons[agendaIndex]) buttons[agendaIndex].scrollIntoView({ block: 'nearest' })
+    }
+  })()
 
   // ── 术语高亮弹窗；完整术语表统一放在学习中心 ──
   var glossary = Array.isArray(course.glossary) ? course.glossary.filter(function(g){ return g && g.term && g.explain }) : []
@@ -421,10 +546,12 @@ export const RENDER_JS = `(function(){
         window.Reveal.on('ready', function(event){
           setTimeout(renderMath, 80)
           refreshScrollState(event && event.currentSlide || document.querySelector('.slides > section.present'))
+          setAgendaActive(event && event.indexh || 0)
         })
         window.Reveal.on('slidechanged', function(event){
           if (event && event.currentSlide) event.currentSlide.scrollTop = 0
           refreshScrollState(event && event.currentSlide)
+          setAgendaActive(event && event.indexh || 0)
           setTimeout(function(){ refreshScrollState(event && event.currentSlide) }, 100)
         })
         window.addEventListener('resize', function(){
@@ -467,7 +594,7 @@ export const IX_JS = `(function(){
   })
 })()`
 
-export const PY = `import sys, json, os, io, zlib, zipfile
+export const PY = `import sys, json, os, io, zlib, zipfile, base64, contextlib
 import xml.etree.ElementTree as ET
 
 NL = chr(10)
@@ -563,18 +690,238 @@ def ipynb(path):
             parts.append('=== MARKDOWN CELL %d ===' % cell_no + NL + src)
     return NL + NL.join(parts)
 
-def pdf(path):
+def compact(value, limit=500):
+    value = str(value or '').replace(chr(0), ' ').replace(chr(10), ' ').replace(chr(13), ' ')
+    return ' '.join(value.split())[:limit]
+
+def nearby_caption(page, bbox, kind):
+    try:
+        box = tuple(float(v) for v in bbox)
+        candidates = []
+        for block in page.get_text('blocks'):
+            text = compact(block[4], 320)
+            if not text:
+                continue
+            lower = text.lower()
+            if kind == 'table':
+                named = lower.startswith('table ') or lower.startswith('table:') or text.startswith('表')
+            else:
+                named = lower.startswith('figure ') or lower.startswith('fig.') or lower.startswith('fig ') or text.startswith('图')
+            if not named:
+                continue
+            overlap = min(box[2], float(block[2])) - max(box[0], float(block[0]))
+            gap = float(block[1]) - box[3]
+            if overlap > 0 and -4 <= gap <= 140:
+                candidates.append((abs(gap), text))
+        if candidates:
+            candidates.sort(key=lambda item: item[0])
+            return candidates[0][1]
+    except Exception:
+        pass
+    return ''
+
+def table_record(table, page, page_no, table_no, source_id):
+    try:
+        raw_rows = table.extract() or []
+        rows = []
+        for raw_row in raw_rows[:41]:
+            if not isinstance(raw_row, (list, tuple)):
+                continue
+            row = [compact(cell, 320) for cell in list(raw_row)[:12]]
+            if any(row):
+                rows.append(row)
+        if len(rows) < 2:
+            return None
+        width = max(len(row) for row in rows)
+        if width < 2:
+            return None
+        rows = [row + [''] * (width - len(row)) for row in rows]
+        header = getattr(table, 'header', None)
+        names = [compact(cell, 320) for cell in list(getattr(header, 'names', []) or [])[:width]]
+        if len(names) == width and any(names):
+            headers = names
+            body = rows[1:] if rows and rows[0] == headers else rows
+        else:
+            headers = rows[0]
+            body = rows[1:]
+        if not body or sum(1 for row in body for cell in row if cell) < 2:
+            return None
+        asset_id = '%s-P%d-T%d' % (source_id, page_no, table_no)
+        bbox = [round(float(v), 2) for v in table.bbox]
+        return {
+            'id': asset_id,
+            'page': page_no,
+            'headers': headers,
+            'rows': body,
+            'caption': nearby_caption(page, bbox, 'table'),
+            'bbox': bbox,
+        }
+    except Exception:
+        return None
+
+def table_marker(record):
+    lines = ['--- TABLE ASSET id=%s page=%d ---' % (record['id'], record['page'])]
+    if record.get('caption'):
+        lines.append('caption: ' + record['caption'])
+    def cells(values):
+        return '| ' + ' | '.join(compact(value, 320).replace('|', '/') for value in values) + ' |'
+    if record.get('headers'):
+        lines.append(cells(record['headers']))
+        lines.append('| ' + ' | '.join(['---'] * len(record['headers'])) + ' |')
+    for row in record.get('rows', []):
+        lines.append(cells(row))
+    lines.append('--- END TABLE ASSET ---')
+    return NL.join(lines)
+
+def visual_hash_for_xref(doc, xref):
+    """16x16 灰度感知哈希；用于合并连续渐进动画中的近似重复大图。"""
+    try:
+        import pymupdf
+        pix = pymupdf.Pixmap(doc, xref)
+        if pix.n - pix.alpha > 1:
+            pix = pymupdf.Pixmap(pymupdf.csGRAY, pix)
+        samples = pix.samples
+        stride = int(pix.stride)
+        width = int(pix.width)
+        height = int(pix.height)
+        if width < 2 or height < 2 or not samples:
+            return ''
+        values = []
+        for gy in range(16):
+            for gx in range(16):
+                cell = []
+                for sy in range(4):
+                    y = min(height - 1, int((gy + (sy + 0.5) / 4.0) * height / 16.0))
+                    for sx in range(4):
+                        x = min(width - 1, int((gx + (sx + 0.5) / 4.0) * width / 16.0))
+                        cell.append(samples[y * stride + x])
+                values.append(sum(cell) / float(len(cell)))
+        mean = sum(values) / float(len(values))
+        bits = 0
+        for index, value in enumerate(values):
+            if value < mean:
+                bits |= (1 << index)
+        return ('%064x' % bits)
+    except Exception:
+        return ''
+
+def pdf(path, source_id='S1'):
     data = open(path, 'rb').read()
     texts = []
+    tables = []
+    assets = []
     try:
         import pymupdf
         doc = pymupdf.open(stream=data, filetype='pdf')
+        image_infos = []
+        xref_pages = {}
+        for page_no, p in enumerate(doc, 1):
+            try:
+                infos = p.get_image_info(xrefs=True)
+            except Exception:
+                infos = []
+            image_infos.append(infos)
+            for info in infos:
+                xref = int(info.get('xref') or 0)
+                if xref > 0:
+                    xref_pages.setdefault(xref, set()).add(page_no)
+        total_image_bytes = 0
         for page_no, p in enumerate(doc, 1):
             t = (p.get_text() or '').strip()
+            page_parts = ['=== PAGE %d ===' % page_no]
             if t:
-                texts.append('=== PAGE %d ===' % page_no + NL + t)
+                page_parts.append(t)
+            page_tables = []
+            try:
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    found = p.find_tables()
+                for table_no, table in enumerate(list(found.tables or [])[:8], 1):
+                    record = table_record(table, p, page_no, table_no, source_id)
+                    if record:
+                        tables.append(record)
+                        page_tables.append(record)
+                        page_parts.append(table_marker(record))
+            except Exception:
+                pass
+            table_boxes = [tuple(record['bbox']) for record in page_tables]
+            figure_no = 0
+            seen_page_xrefs = set()
+            for info in image_infos[page_no - 1]:
+                # 长课件不能让前 24 张图耗尽配额后把后半讲的公式图、函数图全部丢掉。
+                # 最终 HTML 只嵌入模型实际引用的资源，这里的较高上限主要用于完整候选池。
+                if len(assets) >= 96 or total_image_bytes >= 32 * 1024 * 1024:
+                    break
+                xref = int(info.get('xref') or 0)
+                if xref <= 0 or xref in seen_page_xrefs:
+                    continue
+                seen_page_xrefs.add(xref)
+                bbox = tuple(float(v) for v in (info.get('bbox') or (0, 0, 0, 0)))
+                box_w = max(0.0, bbox[2] - bbox[0])
+                box_h = max(0.0, bbox[3] - bbox[1])
+                page_area = max(1.0, float(p.rect.width) * float(p.rect.height))
+                coverage = box_w * box_h / page_area
+                px_w = int(info.get('width') or 0)
+                px_h = int(info.get('height') or 0)
+                if px_w < 180 or px_h < 100 or coverage < 0.025 or coverage > 0.72:
+                    continue
+                aspect = box_w / max(1.0, box_h)
+                if aspect < 0.14 or aspect > 7.0:
+                    continue
+                if len(xref_pages.get(xref, ())) >= max(3, int(len(doc) * 0.35)) and coverage < 0.20:
+                    continue
+                inside_table = False
+                for table_box in table_boxes:
+                    ix = max(0.0, min(bbox[2], table_box[2]) - max(bbox[0], table_box[0]))
+                    iy = max(0.0, min(bbox[3], table_box[3]) - max(bbox[1], table_box[1]))
+                    if ix * iy >= box_w * box_h * 0.55:
+                        inside_table = True
+                        break
+                if inside_table:
+                    continue
+                try:
+                    extracted = doc.extract_image(xref) or {}
+                    image = extracted.get('image') or b''
+                    ext = str(extracted.get('ext') or '').lower()
+                    if ext == 'jpg':
+                        ext = 'jpeg'
+                    if ext not in ('png', 'jpeg', 'webp', 'gif'):
+                        pix = pymupdf.Pixmap(doc, xref)
+                        if pix.n - pix.alpha > 3:
+                            pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+                        image = pix.tobytes('png')
+                        ext = 'png'
+                    if len(image) < 4096 or len(image) > 5 * 1024 * 1024 or total_image_bytes + len(image) > 32 * 1024 * 1024:
+                        continue
+                except Exception:
+                    continue
+                figure_no += 1
+                asset_id = '%s-P%d-F%d' % (source_id, page_no, figure_no)
+                caption = nearby_caption(p, bbox, 'figure')
+                visual_hash = visual_hash_for_xref(doc, xref)
+                assets.append({
+                    'id': asset_id,
+                    'page': page_no,
+                    'mime': 'image/' + ext,
+                    'dataUrl': 'data:image/' + ext + ';base64,' + base64.b64encode(image).decode('ascii'),
+                    'caption': caption,
+                    # 文本模型无法直接看见位图时，较完整的同页文字仍可帮助它忠实讲图；
+                    # 支持视觉的模型会同时收到图片本身。
+                    'context': compact(t, 2400),
+                    'alt': caption or ('第 %d 页资料原图' % page_no),
+                    'width': px_w,
+                    'height': px_h,
+                    'bbox': [round(v, 2) for v in bbox],
+                    'visualHash': visual_hash,
+                })
+                total_image_bytes += len(image)
+                page_parts.append('--- FIGURE ASSET id=%s page=%d size=%dx%d ---' % (asset_id, page_no, px_w, px_h))
+                if caption:
+                    page_parts.append('caption: ' + caption)
+                page_parts.append('--- END FIGURE ASSET ---')
+            if len(page_parts) > 1:
+                texts.append(NL.join(page_parts))
         if texts:
-            return NL + NL.join(texts)
+            return {'text': NL + (NL + NL).join(texts), 'tables': tables, 'assets': assets}
     except Exception:
         pass
     try:
@@ -585,10 +932,10 @@ def pdf(path):
             if t:
                 texts.append('=== PAGE %d ===' % page_no + NL + t)
         if texts:
-            return NL + NL.join(texts)
+            return {'text': NL + NL.join(texts), 'tables': [], 'assets': []}
     except Exception:
         pass
-    return '(no extractable text; this PDF is likely image-based)'
+    return {'text': '(no extractable text; this PDF is likely image-based)', 'tables': [], 'assets': []}
 
 def codefile(path):
     return open(path, encoding='utf-8', errors='replace').read()
@@ -598,6 +945,7 @@ def main():
     action = task.get('action')
     if action == 'extract':
         f = task.get('file', '')
+        source_id = str(task.get('sourceId') or 'S1')
         e = os.path.splitext(f)[1].lower()
         try:
             if e == '.pptx':
@@ -607,12 +955,16 @@ def main():
             elif e == '.xlsx':
                 out = xlsx(f)
             elif e == '.pdf':
-                out = pdf(f)
+                out = pdf(f, source_id)
             elif e == '.ipynb':
                 out = ipynb(f)
             else:
                 out = codefile(f)
-            sys.stdout.write(json.dumps({'ok': True, 'text': out}))
+            if isinstance(out, dict):
+                payload = {'ok': True, 'text': out.get('text', ''), 'tables': out.get('tables', []), 'assets': out.get('assets', [])}
+            else:
+                payload = {'ok': True, 'text': out, 'tables': [], 'assets': []}
+            sys.stdout.write(json.dumps(payload))
         except Exception as ex:
             sys.stdout.write(json.dumps({'ok': False, 'error': repr(ex)}))
     elif action == 'zip':

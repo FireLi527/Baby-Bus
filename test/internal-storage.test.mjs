@@ -4,9 +4,9 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { allocateSourceCharBudget, condenseSourceText, detectLiteratureMaterial, generate, generateBatch, jobStatus, stripPaperReferenceTail } from '../server/pipeline.js'
+import { allocateSourceCharBudget, condenseSourceText, detectLiteratureMaterial, generate, generateBatch, jobStatus, representativeFigureAssets, sourceTextForRanges, splitStructuredSource, stripPaperReferenceTail } from '../server/pipeline.js'
 import { indexHtml, refreshLearningCenter, scanCourseLocations } from '../server/archive.js'
-import { SYS } from '../server/embedded.mjs'
+import { PY, SYS } from '../server/embedded.mjs'
 
 function mockAnswer(prompt) {
   if (prompt.includes('【第一步】')) {
@@ -61,10 +61,35 @@ test('多来源字符预算会完整保留短资料并公平分配长资料', ()
 })
 
 test('长课件压缩后仍覆盖每个幻灯片锚点和尾部资料', () => {
-  const source = [1, 2, 3, 4].map(index => `=== SLIDE ${index} ===\n` + String(index).repeat(120)).join('\n')
-  const condensed = condenseSourceText(source, 180)
+  const source = [1, 2, 3, 4].map(index => `=== SLIDE ${index} ===\n标题 ${index}\n` + String(index).repeat(80) + `\nLoss function ${index}: P(y=${index}|x)=exp(z_${index})/Z`).join('\n')
+  const condensed = condenseSourceText(source, 300)
   for (let index = 1; index <= 4; index++) assert.match(condensed, new RegExp(`=== SLIDE ${index} ===`))
-  assert.ok(condensed.length <= 180)
+  assert.match(condensed, /Loss function/)
+  assert.match(condensed, /P\(y=/)
+  assert.ok(condensed.length <= 300)
+})
+
+test('大纲原页范围会精确选择对应页而不是按字符等分', () => {
+  const source = [1, 2, 3, 4, 5].map(index => `=== PAGE ${index} ===\n第${index}页理论\n公式${index}=x`).join('\n\n')
+  assert.equal(splitStructuredSource(source).length, 5)
+  const selected = sourceTextForRanges(source, [{ source: 'S1', kind: 'PAGE', from: 2, to: 4 }], 'S1')
+  assert.doesNotMatch(selected, /第1页|第5页/)
+  assert.match(selected, /第2页理论/)
+  assert.match(selected, /公式4=x/)
+})
+
+test('连续渐进图按感知哈希合并并保留信息最完整的最后一张', () => {
+  const same = '0'.repeat(64)
+  const slightlyDifferent = '0'.repeat(63) + '1'
+  const distinct = 'f'.repeat(64)
+  const assets = representativeFigureAssets([
+    { id: 'S1-P10-F1', page: 10, visualHash: same },
+    { id: 'S1-P11-F1', page: 11, visualHash: slightlyDifferent },
+    { id: 'S1-P15-F1', page: 15, visualHash: same },
+    { id: 'S1-P16-F1', page: 16, visualHash: distinct },
+  ])
+  assert.deepEqual(assets.map(asset => asset.id), ['S1-P11-F1', 'S1-P15-F1', 'S1-P16-F1'])
+  assert.deepEqual(assets[0].mergedAssetIds, ['S1-P10-F1', 'S1-P11-F1'])
 })
 
 test('论文识别与参考文献尾部裁剪只保留正文', () => {
@@ -82,6 +107,14 @@ test('内嵌系统提示坚持资料忠实，不再硬性要求数字、公式�
   assert.match(SYS, /公式、例题、实验数字、推导和结论都必须能回指资料正文/)
   assert.match(SYS, /论文\/文献模式不强制出题、练习、数值演算或公式/)
   assert.match(SYS, /其后的文献条目全部跳过/)
+  assert.match(SYS, /TABLE ASSET/)
+  assert.match(SYS, /FIGURE ASSET/)
+  assert.match(SYS, /caption 只是图注，不算讲解/)
+  assert.match(SYS, /每个 figure 都必须带 guide/)
+  assert.match(SYS, /不设 150 字硬上限/)
+  assert.match(SYS, /绝不能为了控制页数删除资料已有的理论、公式、条件或推导步骤/)
+  assert.match(PY, /find_tables\(\)/)
+  assert.match(PY, /extract_image\(xref\)/)
   assert.doesNotMatch(SYS, /每张幻灯片至少要有一个带具体数字的内容|每个公式必须三步讲透/)
 })
 
@@ -144,6 +177,10 @@ test('论文模式不强制出题或公式，并从所有生成阶段排除参�
   assert.match(sectionPrompt, /【资料类型】论文文献/)
   assert.match(sectionPrompt, /不强制出题、练习、例题、公式/)
   assert.match(sectionPrompt, /标题和正文优先使用中文术语，尽量不要使用英文缩写/)
+  assert.match(sectionPrompt, /sourceTableId/)
+  assert.match(sectionPrompt, /assetId/)
+  assert.match(sectionPrompt, /guide 至少两项/)
+  assert.match(sectionPrompt, /caption\/alt 不算讲解/)
   assert.doesNotMatch(sectionPrompt, /至少 1 张带具体数字|本小节必须包含（缺一不可）/)
   assert.doesNotMatch(sectionPrompt, /Ghost|Phantom|Invented Formula Handbook/)
   assert.match(reviewPrompt, /unsupported/)
@@ -154,6 +191,7 @@ test('论文模式不强制出题或公式，并从所有生成阶段排除参�
   assert.match(glossaryPrompt, /允许 abbr 重复/)
   const plan = JSON.parse(fs.readFileSync(path.join(storageDir, '论文策略', 'paper.plan.json'), 'utf8'))
   assert.equal(plan.materialType, '论文文献')
+  assert.deepEqual(plan.slides.filter(slide => slide.agendaIndex === 0).map(slide => slide.agendaHeading), ['研究内容', '研究内容'])
   assert.match(fs.readFileSync(path.join(storageDir, '论文策略', 'paper.source.md'), 'utf8'), /Ghost/, '归档保留原始参考文献，只从生成上下文排除')
 })
 
@@ -316,7 +354,7 @@ test('可定位的排版问题最多触发一轮定向重生成', async t => {
   assert.equal(result.performance.llmCalls, 11)
 })
 
-test('简明模式强制限制小节数与每节页数', async t => {
+test('简明模式只压缩表达，不再硬裁大纲小节或生成页', async t => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'study-assistant-concise-'))
   const inputDir = path.join(tempRoot, 'input')
   const storageDir = path.join(tempRoot, 'data', '学习资料')
@@ -356,8 +394,79 @@ test('简明模式强制限制小节数与每节页数', async t => {
 
   assert.equal(result.ok, true, result.error)
   const plan = JSON.parse(fs.readFileSync(path.join(storageDir, '简明', 'concise.plan.json'), 'utf8'))
-  assert.equal(plan.slides.length, 15, '封面 + 大纲 + 4小节×3页 + 小结')
-  assert.equal(result.performance.llmCalls, 8)
+  assert.equal(plan.slides.length, 39, '封面 + 大纲 + 6小节×6页 + 小结')
+  assert.equal(result.performance.llmCalls, 10)
+})
+
+test('大纲漏标原页时程序会修补范围并自动补生成遗漏的公式页', async t => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'study-assistant-coverage-'))
+  const inputDir = path.join(tempRoot, 'input')
+  const storageDir = path.join(tempRoot, 'data', '学习资料')
+  fs.mkdirSync(inputDir, { recursive: true })
+  const inputFile = path.join(inputDir, 'formula.md')
+  fs.writeFileSync(inputFile, '=== PAGE 1 ===\n概率模型\nP(y=k|x)=exp(z_k)/Z\n\n=== PAGE 2 ===\n似然函数\nL=product P(y_i|x_i)\n\n=== PAGE 3 ===\n损失函数\n-loss log L', 'utf8')
+  const prompts = []
+  const mockLlm = await createMockLlm(prompt => {
+    prompts.push(prompt)
+    if (prompt.includes('【第一步】')) return JSON.stringify({
+      title: '完整公式课程',
+      materialType: '教材课件',
+      sections: [{ heading: '从概率到损失', keyPoints: ['条件概率', '似然', '损失'], sourceRefs: ['S1'], sourceRanges: [{ source: 'S1', kind: 'PAGE', from: 1, to: 2 }] }],
+    })
+    if (prompt.includes('【完整性补页】')) return JSON.stringify([
+      { title: '负对数似然给出损失函数', sourceAnchors: ['S1:PAGE 3'], blocks: [{ type: 'formula', latex: '-\\log L' }] },
+    ])
+    if (prompt.includes('【当前任务】')) return JSON.stringify([
+      { title: '条件概率定义分类结果', sourceAnchors: ['S1:PAGE 1'], blocks: [{ type: 'formula', latex: 'P(y=k\\mid x)=\\frac{\\exp(z_k)}{Z}' }] },
+      { title: '样本概率连乘形成似然', sourceAnchors: ['S1:PAGE 2'], blocks: [{ type: 'formula', latex: 'L=\\prod_i P(y_i\\mid x_i)' }] },
+    ])
+    if (prompt.includes('你是学生审稿员')) return JSON.stringify({ problems: [] })
+    return mockAnswer(prompt)
+  })
+  t.after(() => {
+    mockLlm.close()
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  })
+
+  const address = mockLlm.address()
+  const result = await generate({
+    dataDir: path.join(tempRoot, 'data'), storageDir, inputDir,
+    llm: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: 'test', model: 'mock' },
+    enableSelfCheck: false, browserPath: '',
+  }, { rel: inputFile, course: '覆盖检查', html: false, pptx: false, job: 'coverage-test' })
+
+  assert.equal(result.ok, true, result.error)
+  assert.ok(prompts.some(prompt => prompt.includes('【完整性补页】')))
+  const plan = JSON.parse(fs.readFileSync(path.join(storageDir, '覆盖检查', 'formula.plan.json'), 'utf8'))
+  const anchors = plan.slides.flatMap(slide => slide.sourceAnchors || [])
+  assert.deepEqual([...new Set(anchors)].sort(), ['S1:PAGE 1', 'S1:PAGE 2', 'S1:PAGE 3'])
+  assert.equal(result.performance.sourceAnchorsMissing, 0)
+})
+
+test('模型补页后仍漏原页时明确失败，不静默输出摘要版', async t => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'study-assistant-coverage-fail-'))
+  const inputDir = path.join(tempRoot, 'input')
+  const storageDir = path.join(tempRoot, 'data', '学习资料')
+  fs.mkdirSync(inputDir, { recursive: true })
+  const inputFile = path.join(inputDir, 'missing.md')
+  fs.writeFileSync(inputFile, '=== PAGE 1 ===\n必须保留的损失函数\nL=-log P(y|x)', 'utf8')
+  const mockLlm = await createMockLlm(prompt => {
+    if (prompt.includes('【第一步】')) return JSON.stringify({ title: '遗漏测试', sections: [{ heading: '损失', sourceRefs: ['S1'], sourceRanges: [{ source: 'S1', kind: 'PAGE', from: 1, to: 1 }] }] })
+    return JSON.stringify([{ title: '只写概括', blocks: [{ type: 'text', content: '这里有一个损失函数。' }] }])
+  })
+  t.after(() => {
+    mockLlm.close()
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  })
+  const address = mockLlm.address()
+  const result = await generate({
+    dataDir: path.join(tempRoot, 'data'), storageDir, inputDir,
+    llm: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: 'test', model: 'mock' },
+    enableSelfCheck: false, browserPath: '',
+  }, { rel: inputFile, course: '遗漏阻断', html: false, pptx: false, job: 'coverage-fail-test' })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /完整性检查未通过/)
+  assert.equal(fs.existsSync(path.join(storageDir, '遗漏阻断', 'missing.plan.json')), false)
 })
 
 test('多文件任务实时上报当前文件阶段，不再产生批量队列阶段', async t => {

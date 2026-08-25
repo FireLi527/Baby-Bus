@@ -6,7 +6,7 @@ import { PAGE_CSS, RENDER_JS } from './embedded.mjs'
 import { paginateCourseSlides } from './parse.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-export const HTML_RENDERER_VERSION = 13
+export const HTML_RENDERER_VERSION = 18
 
 let runtimeCache = null
 

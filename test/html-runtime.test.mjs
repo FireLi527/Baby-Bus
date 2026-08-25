@@ -72,6 +72,43 @@ test('每张 Reveal 幻灯片可独立纵向滚动并在翻页时回到顶部', 
   assert.match(RENDER_JS, /currentSlide\.scrollTop = 0/)
 })
 
+test('HTML 提供按 agenda 跳转的语义侧栏，并渲染经过校验的资料原图', () => {
+  assert.match(PAGE_CSS, /\.agenda-nav/)
+  assert.match(PAGE_CSS, /body\.agenda-open \.reveal/)
+  assert.match(RENDER_JS, /function buildAgenda/)
+  assert.match(RENDER_JS, /data-agenda-index/)
+  assert.match(RENDER_JS, /window\.Reveal\.slide\(target, 0, 0\)/)
+  assert.match(RENDER_JS, /b\.type === 'figure'/)
+  assert.match(RENDER_JS, /dataUrl\.indexOf\('data:image\/'\)/)
+  assert.match(PAGE_CSS, /\.b-figure-guide/)
+  assert.match(RENDER_JS, /怎么看这张图/)
+  assert.match(RENDER_JS, /图中结论：/)
+
+  const html = buildHtmlDoc({
+    title: '目录测试',
+    outline: [{ heading: '词向量', keyPoints: ['分布式表示'] }],
+    assets: { 'S1-P5-F1': { dataUrl: 'data:image/png;base64,AA==', caption: '图 3' } },
+    slides: [
+      { kind: 'cover' },
+      { title: '本讲内容', blocks: [{ type: 'bullets', items: ['词向量'] }] },
+      { title: '词可以表示成向量', agendaIndex: 0, blocks: [{
+        type: 'figure', assetId: 'S1-P5-F1', caption: '图 3',
+        guide: [
+          { label: '坐标位置', content: '每个词在图中的位置表示它的二维投影。' },
+          { label: '相邻词语', content: '语义更接近的词在图上彼此更靠近。' },
+        ],
+        takeaway: '距离把词语之间的相似关系变成可观察的空间关系。',
+      }] },
+    ],
+  })
+  const payload = /id='course-data'>([^<]+)/.exec(html)?.[1]
+  const decoded = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'))
+  assert.equal(decoded.slides[2].agendaIndex, 0)
+  assert.equal(decoded.slides[2].blocks[0].guide.length, 2)
+  assert.match(decoded.slides[2].blocks[0].takeaway, /空间关系/)
+  assert.equal(decoded.assets['S1-P5-F1'].caption, '图 3')
+})
+
 test('术语提示框允许鼠标移入，不会因触发文字失焦而闪烁', () => {
   assert.match(RENDER_JS, /pop\.addEventListener\('mouseenter', cancelPopHide\)/)
   assert.match(RENDER_JS, /pop\.addEventListener\('mouseleave', schedulePopHide\)/)
@@ -175,6 +212,9 @@ test('渲染自检以固定画布为基准，不把内容自身高度误报成�
   assert.deepEqual(collectLayoutProblems({ per: [page] }), [])
   assert.match(collectLayoutProblems({ per: [{ ...page, overflowY: 28 }] })[0], /垂直溢出/)
   assert.deepEqual(collectLayoutProblems({ per: [{ ...page, overflowY: 280, scrollableY: true }] }), [])
+  const intro = { ...page, page: 2, title: '最大似然估计', fill: 28 }
+  const continuation = { ...page, page: 3, title: '最大似然估计（续）', fill: 88 }
+  assert.deepEqual(collectLayoutProblems({ per: [intro, continuation] }), [], '连续知识点中的短引入页不应误报为空页')
 })
 
 test('渲染自检逐页激活 Reveal 幻灯片后再测量隐藏页', () => {

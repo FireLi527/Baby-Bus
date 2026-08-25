@@ -1,6 +1,28 @@
 // OpenAI 兼容 LLM 客户端（流式）。DeepSeek / OpenAI / Moonshot / 通义 / 智谱 等均可通过 baseUrl+apiKey+model 配置。
 import { withTimeout } from './util.js'
 
+const visionRejectedModels = new Set()
+
+function modelKey(cfg) {
+  return String(cfg && cfg.baseUrl || '').replace(/\/+$/, '') + '|' + String(cfg && cfg.model || '')
+}
+
+function shouldDisableThinking(model) {
+  return /^deepseek-v4-(?:pro|flash(?:-vision-exp)?)$/i.test(String(model || ''))
+}
+
+function userContent(user, images) {
+  if (!Array.isArray(images) || !images.length) return user
+  const content = [{ type: 'text', text: String(user || '') }]
+  for (const image of images) {
+    const dataUrl = String(image && image.dataUrl || '')
+    if (!/^data:image\/(?:png|jpeg|jpg|webp|gif);base64,/i.test(dataUrl)) continue
+    if (image.label) content.push({ type: 'text', text: '\n【' + String(image.label) + '】' })
+    content.push({ type: 'image_url', image_url: { url: dataUrl, detail: 'high' } })
+  }
+  return content.length > 1 ? content : user
+}
+
 export function parseSseLine(rawLine) {
   const line = String(rawLine || '').trim()
   if (!line.startsWith('data:')) return null
@@ -22,7 +44,16 @@ export function parseSseLine(rawLine) {
 }
 
 /** 把 OpenAI 兼容的 SSE 流转换为文本增量异步迭代器 */
-export async function* streamChat(cfg, { system, user, temperature = 0.3, maxTokens = 8000, timeoutMs = 240000 }) {
+export async function* streamChat(cfg, {
+  system,
+  user,
+  images = [],
+  temperature = 0.3,
+  maxTokens = 8000,
+  timeoutMs = 240000,
+  allowLengthFinish = false,
+  onSseEvent = null,
+}) {
   const baseUrl = String(cfg.baseUrl || '').replace(/\/+$/, '')
   const url = baseUrl ? `${baseUrl}/chat/completions` : 'https://api.deepseek.com/v1/chat/completions'
   const controller = new AbortController()
@@ -36,12 +67,12 @@ export async function* streamChat(cfg, { system, user, temperature = 0.3, maxTok
       max_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'user', content: userContent(user, images) },
       ],
     }
     // V4 默认开启 high 级思考；课件链路需要大量严格 JSON，关闭思考可避免
     // reasoning_content 消耗输出预算并显著降低批量生成延迟。
-    if (/^deepseek-v4-(?:pro|flash)$/i.test(String(cfg.model || ''))) {
+    if (shouldDisableThinking(cfg.model)) {
       payload.thinking = { type: 'disabled' }
     }
     res = await fetch(url, {
@@ -82,9 +113,10 @@ export async function* streamChat(cfg, { system, user, temperature = 0.3, maxTok
         buf = buf.slice(idx + 1)
         const event = parseSseLine(line)
         if (!event) continue
+        if (typeof onSseEvent === 'function') onSseEvent(event)
         if (event.finishReason) finishReason = event.finishReason
         if (event.done) {
-          if (finishReason === 'length') throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
+          if (finishReason === 'length' && !allowLengthFinish) throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
           return
         }
         // 思考模型会先返回 reasoning_content，再返回最终 content。
@@ -95,11 +127,12 @@ export async function* streamChat(cfg, { system, user, temperature = 0.3, maxTok
     buf += decoder.decode()
     const finalEvent = parseSseLine(buf)
     if (finalEvent) {
+      if (typeof onSseEvent === 'function') onSseEvent(finalEvent)
       if (finalEvent.finishReason) finishReason = finalEvent.finishReason
-      if (finalEvent.done && finishReason === 'length') throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
+      if (finalEvent.done && finishReason === 'length' && !allowLengthFinish) throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
       if (finalEvent.piece) yield finalEvent.piece
     }
-    if (finishReason === 'length') throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
+    if (finishReason === 'length' && !allowLengthFinish) throw new Error('LLM 输出达到 token 上限，最终 JSON 可能不完整')
   } finally {
     clearTimeout(timer)
   }
@@ -107,18 +140,39 @@ export async function* streamChat(cfg, { system, user, temperature = 0.3, maxTok
 
 /** 收集完整文本 */
 export async function callLlm(cfg, opts) {
-  let raw = ''
-  for await (const piece of streamChat(cfg, opts)) raw += piece
-  if (!raw) throw new Error('LLM 返回为空')
-  return raw
+  const key = modelKey(cfg)
+  const requestedImages = Array.isArray(opts && opts.images) && opts.images.length > 0
+  const collect = async callOpts => {
+    let raw = ''
+    for await (const piece of streamChat(cfg, callOpts)) raw += piece
+    if (!raw) throw new Error('LLM 返回为空')
+    return raw
+  }
+  if (!requestedImages || visionRejectedModels.has(key)) return collect({ ...opts, images: [] })
+  try {
+    return await collect(opts)
+  } catch (error) {
+    // 兼容只接收纯文本的 OpenAI-compatible 服务：本次回退后记住能力，
+    // 后续小节不再逐次发送必然失败的图片请求。
+    if (![400, 404, 415, 422].includes(Number(error && error.status))) throw error
+    visionRejectedModels.add(key)
+    return collect({ ...opts, images: [] })
+  }
 }
 
-/** 配置连通性测试：发一条 1-token 请求 */
+/** 配置连通性测试：只验证 OpenAI-compatible 接口能否返回合法 SSE 事件。 */
 export async function testLlm(cfg) {
   await withTimeout((async () => {
-    let n = 0
-    for await (const _ of streamChat(cfg, { system: 'ping', user: 'pong', maxTokens: 4, timeoutMs: 20000 })) { n++ }
-    if (!n) throw new Error('无输出')
+    let eventCount = 0
+    for await (const _ of streamChat(cfg, {
+      system: '只回复 OK。',
+      user: 'OK',
+      maxTokens: 64,
+      timeoutMs: 20000,
+      allowLengthFinish: true,
+      onSseEvent: () => { eventCount++ },
+    })) {}
+    if (!eventCount) throw new Error('接口未返回合法的流式响应事件')
   })(), 25000, 'llm-test')
   return { ok: true }
 }
