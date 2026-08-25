@@ -3,7 +3,7 @@ import http from 'node:http'
 import test from 'node:test'
 import { callLlm, parseSseLine, testLlm } from '../server/llm.js'
 import { findFigureTeachingProblems, normalizeCourseSlides, paginateCourseSlides, parseCourse, parseCourseArray } from '../server/parse.js'
-import { bindEvidenceSlides } from '../server/pipeline.js'
+import { bindEvidenceSlides, replaceFigureTeachingOnly } from '../server/pipeline.js'
 
 test('思考模型的 reasoning_content 不会污染最终 JSON', async t => {
   let requestBody = null
@@ -192,6 +192,29 @@ test('图片讲解结构会被保留，图注本身不能通过教学门禁', ()
   ])
   assert.equal(slides[1].blocks[0].guide.length, 2)
   assert.deepEqual(findFigureTeachingProblems(slides).map(problem => problem.page), [1])
+  assert.equal(findFigureTeachingProblems(slides)[0].blockIndex, 0)
+
+  const before = JSON.stringify(slides[0])
+  const repaired = replaceFigureTeachingOnly(slides, {
+    page: 1,
+    blockIndex: 0,
+    assetId: 'S1-P1-F1',
+    guide: [
+      { label: '左侧输入框', content: '左侧输入框承接原始数据，黑色箭头把数据送入中间处理区域，表示计算从这里开始。' },
+      { label: '右侧输出框', content: '右侧输出框接收中间区域的处理结果，与左侧输入形成完整的读取顺序。' },
+    ],
+    takeaway: '图中从左到右的连接关系说明数据经过中间处理后形成输出。',
+    title: '模型试图篡改标题',
+    caption: '模型试图篡改图注',
+  })
+  assert.equal(repaired.applied, true)
+  assert.equal(JSON.stringify(slides[0]), before, '修复函数不应原地修改输入')
+  assert.equal(repaired.slides[0].title, slides[0].title)
+  assert.equal(repaired.slides[0].blocks[0].caption, slides[0].blocks[0].caption)
+  assert.equal(repaired.slides[0].blocks[0].alt, slides[0].blocks[0].alt)
+  assert.equal(repaired.slides[0].blocks[0].assetId, slides[0].blocks[0].assetId)
+  assert.equal(JSON.parse(before).title, repaired.slides[0].title)
+  assert.equal(repaired.slides[0].blocks[0].guide.length, 2)
 })
 
 test('过密页会按内容块稳定拆页并保留顺序', () => {

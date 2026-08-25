@@ -280,7 +280,9 @@ export function findFigureTeachingProblems(value) {
   const problems = []
   for (let slideIndex = 0; slideIndex < (Array.isArray(value) ? value.length : 0); slideIndex++) {
     const slide = value[slideIndex]
-    for (const block of (slide && Array.isArray(slide.blocks) ? slide.blocks : [])) {
+    const blocks = slide && Array.isArray(slide.blocks) ? slide.blocks : []
+    for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+      const block = blocks[blockIndex]
       if (!block || block.type !== 'figure') continue
       const guide = Array.isArray(block.guide) ? block.guide.filter(item => item && textValue(item.label) && textValue(item.content)) : []
       const guideChars = guide.reduce((sum, item) => sum + textValue(item.label).length + textValue(item.content).length, 0)
@@ -288,6 +290,7 @@ export function findFigureTeachingProblems(value) {
       if (guide.length < 2 || guideChars < 50 || takeaway.length < 10) {
         problems.push({
           page: slideIndex + 1,
+          blockIndex,
           assetId: textValue(block.assetId),
           title: textValue(slide && slide.title),
           note: '图片必须至少逐项讲解两个可见部分或步骤（合计不少于 50 字），并给出一句图中结论；图注和 alt 不算讲解。',

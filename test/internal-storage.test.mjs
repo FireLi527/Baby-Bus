@@ -458,7 +458,7 @@ test('大纲漏标原页时程序会修补范围并自动补生成遗漏的公�
   assert.equal(result.performance.sourceAnchorsMissing, 0)
 })
 
-test('模型补页后仍漏原页时明确失败，不静默输出摘要版', async t => {
+test('模型补页后仍漏原页时记录缺口并带警告交付已有成果', async t => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'study-assistant-coverage-fail-'))
   const inputDir = path.join(tempRoot, 'input')
   const storageDir = path.join(tempRoot, 'data', '学习资料')
@@ -479,9 +479,13 @@ test('模型补页后仍漏原页时明确失败，不静默输出摘要版', as
     llm: { baseUrl: `http://127.0.0.1:${address.port}/v1`, apiKey: 'test', model: 'mock' },
     enableSelfCheck: false, browserPath: '',
   }, { rel: inputFile, course: '遗漏阻断', html: false, pptx: false, job: 'coverage-fail-test' })
-  assert.equal(result.ok, false)
-  assert.match(result.error, /完整性检查未通过/)
-  assert.equal(fs.existsSync(path.join(storageDir, '遗漏阻断', 'missing.plan.json')), false)
+  assert.equal(result.ok, true, result.error)
+  assert.match(result.warnings.join('\n'), /完整性仍有待完善/)
+  assert.match(result.warnings.join('\n'), /S1:PAGE 1/)
+  assert.match(result.warnings.join('\n'), /保留并交付已生成成果/)
+  assert.ok(result.performance.sourceAnchorsMissing >= 1)
+  assert.ok(result.timeline.some(item => item.stage === 'coverage-degraded' || /自动尝试补页并复检/.test(String(item.detail || ''))))
+  assert.equal(fs.existsSync(path.join(storageDir, '遗漏阻断', 'missing.plan.json')), true)
 })
 
 test('多文件任务实时上报当前文件阶段，不再产生批量队列阶段', async t => {
