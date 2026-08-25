@@ -23,14 +23,6 @@ export function pptxParts(course, title) {
     }
     slides.push({ kind: 'content', title: s.title || '', blocks })
   }
-  if (course.glossary && course.glossary.length) {
-    const gLines = []
-    for (const g of course.glossary) {
-      gLines.push(g.term + '：' + g.explain)
-      if (g.formula) gLines.push('公式：' + stripLatex(g.formula))
-    }
-    slides.push({ kind: 'content', title: '术语表', blocks: [{ type: 'bullets', lines: gLines }] })
-  }
   return slides
 }
 

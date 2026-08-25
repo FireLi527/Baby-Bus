@@ -95,14 +95,15 @@ doc.save(sys.argv[1])
   assert.equal(built.status, 0, built.stderr)
 
   let sectionCalls = 0
-  const result = await generate({
+  const cfg = {
     dataDir: path.join(root, 'data'),
     storageDir,
     inputDir,
     llm: { baseUrl: 'http://unused.invalid/v1', apiKey: 'test', model: 'mock-vision' },
     enableSelfCheck: false,
     browserPath: '',
-  }, {
+  }
+  const result = await generate(cfg, {
     rel: pdfFile,
     course: '图片自动修正',
     html: false,
@@ -145,4 +146,34 @@ doc.save(sys.argv[1])
   const figure = plan.slides.flatMap(slide => slide.blocks || []).find(block => block.type === 'figure')
   assert.equal(figure.guide.length, 2)
   assert.match(figure.takeaway, /输入、隐藏处理、输出/)
+
+  let degradedSectionCalls = 0
+  const degraded = await generate(cfg, {
+    rel: pdfFile,
+    course: '图片降级交付',
+    html: true,
+    pptx: false,
+    job: 'figure-degraded-delivery-test',
+  }, {
+    callLlm: async (_cfg, opts) => {
+      const prompt = String(opts.user || '')
+      if (prompt.includes('【第一步】')) return JSON.stringify({
+        title: '图片课程',
+        sections: [{ heading: '读懂流程图', keyPoints: ['输入到输出'], sourceRefs: ['S1'], sourceRanges: [{ source: 'S1', kind: 'PAGE', from: 1, to: 1 }] }],
+      })
+      if (prompt.includes('【当前任务】')) {
+        degradedSectionCalls++
+        return JSON.stringify([{ title: '流程图', sourceAnchors: ['S1:PAGE 1'], blocks: [{ type: 'figure', assetId: 'S1-P1-F1', caption: '输入到输出流程', alt: '流程图' }] }])
+      }
+      if (prompt.includes('【最后一步】')) return JSON.stringify({ title: '小结', blocks: [{ type: 'bullets', items: ['信息从输入到达输出'] }] })
+      if (prompt.includes('请把下面课件正文')) return JSON.stringify({ glossary: [] })
+      if (prompt.includes('你是学生审稿员')) return JSON.stringify({ problems: [] })
+      return JSON.stringify({ problems: [] })
+    },
+  })
+  assert.equal(degraded.ok, true, degraded.error)
+  assert.equal(degradedSectionCalls, 4, '两轮定向修正仍失败后应停止继续消耗模型调用')
+  assert.equal(degraded.performance.figureGuidesMissing, 1)
+  assert.match(degraded.warnings.join('\n'), /保留并交付已生成成果/)
+  assert.ok(degraded.files.html && fs.existsSync(path.join(storageDir, degraded.files.html.rel)))
 })

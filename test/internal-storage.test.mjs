@@ -111,6 +111,8 @@ test('内嵌系统提示坚持资料忠实，不再硬性要求数字、公式�
   assert.match(SYS, /FIGURE ASSET/)
   assert.match(SYS, /caption 只是图注，不算讲解/)
   assert.match(SYS, /每个 figure 都必须带 guide/)
+  assert.match(SYS, /本课程独立术语库/)
+  assert.match(SYS, /大小写与长短写法统一为一个规范名/)
   assert.match(SYS, /不设 150 字硬上限/)
   assert.match(SYS, /绝不能为了控制页数删除资料已有的理论、公式、条件或推导步骤/)
   assert.match(PY, /find_tables\(\)/)
@@ -118,12 +120,19 @@ test('内嵌系统提示坚持资料忠实，不再硬性要求数字、公式�
   assert.doesNotMatch(SYS, /每张幻灯片至少要有一个带具体数字的内容|每个公式必须三步讲透/)
 })
 
-test('学习中心按打开方式选择静态或实时术语库地址', () => {
-  const staticHtml = indexHtml([], 'D:\\资料')
-  const dynamicHtml = indexHtml([], 'D:\\资料', { dynamic: true })
-  assert.match(staticHtml, /href='术语库\.html'/)
-  assert.doesNotMatch(staticHtml, /href='\/api\/study-assistant\/glossary-view'/)
-  assert.match(dynamicHtml, /href='\/api\/study-assistant\/glossary-view'/)
+test('学习中心在每门课程内提供静态或实时术语库地址', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baobao-course-glossary-link-'))
+  const courseDir = path.join(root, '自然语言处理')
+  fs.mkdirSync(courseDir, { recursive: true })
+  fs.writeFileSync(path.join(courseDir, '术语库.html'), '<html></html>', 'utf8')
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const courses = [{ course: '自然语言处理', rel: '自然语言处理', dir: courseDir, materials: [] }]
+  const staticHtml = indexHtml(courses, root)
+  const dynamicHtml = indexHtml(courses, root, { dynamic: true })
+  assert.match(staticHtml, /自然语言处理\/术语库\.html/)
+  assert.doesNotMatch(staticHtml, /href='术语库\.html'/)
+  assert.match(dynamicHtml, /glossary-view\?course=%E8%87%AA%E7%84%B6%E8%AF%AD%E8%A8%80%E5%A4%84%E7%90%86/)
+  assert.match(dynamicHtml, /本课程术语库/)
 })
 
 test('论文模式不强制出题或公式，并从所有生成阶段排除参考文献尾部', async t => {
@@ -187,6 +196,10 @@ test('论文模式不强制出题或公式，并从所有生成阶段排除参�
   assert.doesNotMatch(reviewPrompt, /no-practice|Ghost|Phantom/)
   assert.match(glossaryPrompt, /正文没有公式就必须填写空字符串/)
   assert.match(glossaryPrompt, /"english": "英文全称"/)
+  assert.match(glossaryPrompt, /"aliases": \["正文中的同义写法"\]/)
+  assert.match(glossaryPrompt, /Word2Vec\/word2vec/)
+  assert.match(glossaryPrompt, /稠密词向量\/稠密向量/)
+  assert.match(glossaryPrompt, /同一概念[\s\S]*只能输出一条/)
   assert.match(glossaryPrompt, /"abbr": "资料中明确出现的缩写/)
   assert.match(glossaryPrompt, /允许 abbr 重复/)
   const plan = JSON.parse(fs.readFileSync(path.join(storageDir, '论文策略', 'paper.plan.json'), 'utf8'))
@@ -235,18 +248,20 @@ test('生成结果只写入内部资料库，不修改输入目录', async t => 
   assert.equal(fs.existsSync(path.join(storageDir, '学习中心.html')), true)
   assert.equal(fs.existsSync(path.join(storageDir, '测试课程', '示例.course.html')), true)
   assert.equal(fs.existsSync(path.join(storageDir, '测试课程', '示例.source.md')), true)
-  assert.equal(fs.existsSync(path.join(storageDir, '术语库.html')), true)
+  assert.equal(fs.existsSync(path.join(storageDir, '术语库.html')), false)
+  assert.equal(fs.existsSync(path.join(storageDir, '测试课程', '术语库.html')), true)
+  assert.equal(fs.existsSync(path.join(storageDir, '测试课程', '术语库.json')), true)
   assert.equal(result.indexUrl, '/api/study-assistant/learning-center')
   assert.match(result.files.html.url, /^\/study-assistant\/file\?p=/)
   assert.equal(result.performance.rounds, 1, '自检基础设施失败不应触发第二轮生成')
-  assert.equal(result.performance.llmCalls, 6, '大纲、小节、小结、术语、审稿、局部修复各调用一次')
+  assert.equal(result.performance.llmCalls, 7, '术语空结果会自动重试一次，其余阶段各按原计划调用')
   assert.equal(result.performance.reviewProblems, 1)
   assert.equal(result.performance.fixesApplied, 1)
   assert.equal(result.check.skipped, true)
   assert.match(result.check.error, /模拟浏览器自检不可用/)
   let centerHtml = fs.readFileSync(path.join(storageDir, '学习中心.html'), 'utf8')
   assert.match(centerHtml, /测试课程\/示例\.course\.html/)
-  assert.match(centerHtml, /href='术语库\.html'/)
+  assert.match(centerHtml, /测试课程\/术语库\.html/)
   assert.match(centerHtml, /<summary><span class='ix-title'>测试课程<\/span>/)
   assert.match(centerHtml, /打开 HTML/)
 
@@ -351,7 +366,7 @@ test('可定位的排版问题最多触发一轮定向重生成', async t => {
   assert.equal(result.ok, true, result.error)
   assert.equal(result.performance.rounds, 2)
   assert.equal(checkCalls, 2)
-  assert.equal(result.performance.llmCalls, 11)
+  assert.equal(result.performance.llmCalls, 13, '两轮生成中的空术语结果各自动重试一次')
 })
 
 test('简明模式只压缩表达，不再硬裁大纲小节或生成页', async t => {
@@ -395,7 +410,7 @@ test('简明模式只压缩表达，不再硬裁大纲小节或生成页', async
   assert.equal(result.ok, true, result.error)
   const plan = JSON.parse(fs.readFileSync(path.join(storageDir, '简明', 'concise.plan.json'), 'utf8'))
   assert.equal(plan.slides.length, 39, '封面 + 大纲 + 6小节×6页 + 小结')
-  assert.equal(result.performance.llmCalls, 10)
+  assert.equal(result.performance.llmCalls, 11, '空术语结果会自动重试一次')
 })
 
 test('大纲漏标原页时程序会修补范围并自动补生成遗漏的公式页', async t => {

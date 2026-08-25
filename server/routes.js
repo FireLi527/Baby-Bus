@@ -7,7 +7,7 @@ import { queryParam, readJsonBody, json, CT, SUPPORTED, extOf, fileExists, basen
 import { generate, generateBatch } from './pipeline.js'
 import { activeJobCount, completeJob, jobStatus, rejectJob, report } from './jobs.js'
 import { scanCourses, scanCourseLocations, indexHtml, findCourseFile, refreshLearningCenter } from './archive.js'
-import { buildGlossaryHtml, glossaryVersion, readGlossaryStore } from './glossary.js'
+import { buildGlossaryHtml, glossaryStoreFile, glossaryVersion, readGlossaryStore } from './glossary.js'
 import { publicConfig, saveConfig } from './config.js'
 import { testLlm } from './llm.js'
 
@@ -237,19 +237,23 @@ export async function handle(req, res) {
       return
     }
     if (pathname === '/api/study-assistant/glossary-data' && req.method === 'GET') {
-      const list = readGlossaryStore(currentCfg.storageDir)
+      const courseRel = queryParam(req, 'course')
+      const location = courseRel ? scanCourseLocations(currentCfg.storageDir).find(course => course.rel === courseRel) : null
+      if (!location) { res.statusCode = 400; json(res, { ok: false, error: '请从学习中心选择课程术语库' }); return }
+      const list = readGlossaryStore(location.dir)
       res.setHeader('Cache-Control', 'no-store')
       res.setHeader('Access-Control-Allow-Origin', '*')
-      json(res, { version: glossaryVersion(list), glossary: list })
+      json(res, { course: location.course, version: glossaryVersion(list), glossary: list })
       return
     }
     if (pathname === '/api/study-assistant/glossary-view' && req.method === 'GET') {
-      const pick = currentCfg.storageDir
-      if (!pick || !fileExists(pick)) { res.statusCode = 404; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.end('术语库不存在'); return }
-      const list = readGlossaryStore(pick)
+      const courseRel = queryParam(req, 'course')
+      const location = courseRel ? scanCourseLocations(currentCfg.storageDir).find(course => course.rel === courseRel) : null
+      if (!location || !fileExists(glossaryStoreFile(location.dir))) { res.statusCode = 404; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.end('本课程术语库不存在'); return }
+      const list = readGlossaryStore(location.dir)
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
       res.setHeader('Cache-Control', 'no-store')
-      res.end(buildGlossaryHtml(list, { dataUrl: '/api/study-assistant/glossary-data' }))
+      res.end(buildGlossaryHtml(list, { courseName: location.course, dataUrl: '/api/study-assistant/glossary-data?course=' + encodeURIComponent(location.rel) }))
       return
     }
 

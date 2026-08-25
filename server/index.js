@@ -7,16 +7,20 @@ import { handle, setRuntimeCfg, setShutdownHandler } from './routes.js'
 import { findBrowser } from './check.js'
 import { refreshLearningCenter } from './archive.js'
 import { refreshGeneratedCourseHtml } from './html.js'
-import { refreshGlossaryView } from './glossary.js'
+import { recoverEmptyGlossaries } from './glossary.js'
 
 export async function startServer(options = {}) {
   const cfg = loadConfig()
   cfg.browserPath = findBrowser(cfg.edgePath)
+  const glossaryRecovery = recoverEmptyGlossaries(cfg.storageDir, { port: cfg.port })
+  if (glossaryRecovery.recoveredCourses) {
+    console.log(`已恢复空术语库：${glossaryRecovery.recoveredCourses} 门课程，${glossaryRecovery.recoveredTerms} 个术语`)
+  }
+  if (glossaryRecovery.errors.length) console.warn('有 ' + glossaryRecovery.errors.length + ' 项术语库恢复操作失败')
   const htmlRefresh = refreshGeneratedCourseHtml(cfg.storageDir)
   if (htmlRefresh.updated) console.log('已升级 HTML 课件渲染器：' + htmlRefresh.updated + ' 份')
   if (htmlRefresh.errors.length) console.warn('有 ' + htmlRefresh.errors.length + ' 份 HTML 课件升级失败')
   refreshLearningCenter(cfg.storageDir)
-  refreshGlossaryView(cfg.storageDir, undefined, { port: cfg.port })
   setRuntimeCfg(cfg)
 
   const server = http.createServer((req, res) => {
@@ -39,14 +43,31 @@ export async function startServer(options = {}) {
     setShutdownHandler(null)
     closing = new Promise(resolve => {
       if (!server.listening) { resolve(); return }
-      server.close(() => resolve())
+      const forceClose = setTimeout(() => {
+        // 长连接或仍在结束的浏览器请求不应让桌面进程无限残留。
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections()
+      }, 1500)
+      forceClose.unref?.()
+      server.close(() => {
+        clearTimeout(forceClose)
+        resolve()
+      })
     })
     return closing
   }
   setShutdownHandler(() => {
-    close().finally(() => {
+    let finished = false
+    const finish = () => {
+      if (finished) return
+      finished = true
       if (typeof options.onShutdown === 'function') options.onShutdown()
       else process.exit(0)
+    }
+    const forceExit = setTimeout(finish, 4000)
+    forceExit.unref?.()
+    close().finally(() => {
+      clearTimeout(forceExit)
+      finish()
     })
   })
 

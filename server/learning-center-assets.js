@@ -12,6 +12,7 @@ h1{font-size:26px}
 .ix-title{font-size:18px;font-weight:700;color:#1f2937}
 .ix-count{margin-left:auto;color:#6b7280;font-size:13px;white-space:nowrap}
 .ix-materials{padding:4px 20px 10px}
+.ix-course-tools{padding:12px 20px 0}
 .ix-material{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 0;border-bottom:1px solid #eef0f4}
 .ix-material:last-child{border-bottom:0}
 .ix-material-title{font-size:15px;font-weight:650;color:#263044}
@@ -19,7 +20,7 @@ h1{font-size:26px}
 .ix-actions{display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0}
 .ix-action{display:inline-block;color:#4f46e5;text-decoration:none;font-size:13px;font-weight:600;background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:5px 10px}
 .ix-action:hover{background:#e0e7ff}
-.ix-gloss{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:6px 14px;margin:2px 0 14px;text-decoration:none;font-weight:600;font-size:14px}
+.ix-gloss{display:inline-block;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;border-radius:8px;padding:6px 14px;text-decoration:none;font-weight:600;font-size:14px}
 .ix-gloss:hover{background:#e0e7ff}
 .ix-empty{color:#6b7280}
 @media(max-width:640px){.ix-material{align-items:flex-start;flex-direction:column}.ix-actions{margin-top:2px}.ix-course summary{padding:15px 16px}.ix-materials{padding-left:16px;padding-right:16px}}`

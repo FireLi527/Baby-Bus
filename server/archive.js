@@ -42,12 +42,12 @@ function inspectCourseDir(rootRel, dir, course) {
     if (file.name.endsWith('.plan.json')) base = file.name.slice(0, -'.plan.json'.length)
     else if (file.name.endsWith('.course.html')) base = file.name.slice(0, -'.course.html'.length)
     else if (file.name.endsWith('.slides.pptx')) base = file.name.slice(0, -'.slides.pptx'.length)
-    else if (extOf(file.name) === '.html' && file.name !== '学习中心.html') base = file.name.slice(0, -'.html'.length)
+    else if (extOf(file.name) === '.html' && !['学习中心.html', '术语库.html'].includes(file.name)) base = file.name.slice(0, -'.html'.length)
     else if (extOf(file.name) === '.pptx') base = file.name.slice(0, -'.pptx'.length)
     if (!base) continue
     const item = material(base)
     try { item.updatedAt = Math.max(item.updatedAt, fs.statSync(abs).mtimeMs) } catch (e) {}
-    if (extOf(file.name) === '.html' && file.name !== '学习中心.html') item.html = { name: file.name, abs }
+    if (extOf(file.name) === '.html' && !['学习中心.html', '术语库.html'].includes(file.name)) item.html = { name: file.name, abs }
     if (extOf(file.name) === '.pptx') item.pptx = { name: file.name, abs }
     if (file.name.endsWith('.plan.json')) {
       try {
@@ -117,14 +117,20 @@ export function indexHtml(courses, rootRel, options = {}) {
       if (item.pptx) actions += `<a class='ix-open ix-action' data-abs='` + xmlEsc(item.pptx.abs) + `' href='` + xmlEsc(item.pptx.rel) + `' target='_blank'>下载 PPTX</a>`
       materials += `<div class='ix-material'><div><div class='ix-material-title'>` + xmlEsc(item.title) + `</div>` + (item.difficulty ? `<div class='ix-meta'>` + xmlEsc(item.difficulty) + `</div>` : '') + `</div><div class='ix-actions'>` + actions + `</div></div>`
     }
-    rows += `<details class='ix-course'><summary><span class='ix-title'>` + xmlEsc(c.course) + `</span><span class='ix-count'>` + xmlEsc(String(c.materials.length)) + ` 份课件</span></summary><div class='ix-materials'>` + materials + `</div></details>`
+    const glossaryFile = path.join(c.dir, '术语库.html')
+    const glossaryHref = options.dynamic
+      ? '/api/study-assistant/glossary-view?course=' + encodeURIComponent(c.rel)
+      : c.rel + '/术语库.html'
+    const glossaryAction = fileExists(glossaryFile) ? `<div class='ix-course-tools'><a class='ix-gloss' href='` + xmlEsc(glossaryHref) + `' target='_blank'>本课程术语库</a></div>` : ''
+    rows += `<details class='ix-course'><summary><span class='ix-title'>` + xmlEsc(c.course) + `</span><span class='ix-count'>` + xmlEsc(String(c.materials.length)) + ` 份课件</span></summary>` + glossaryAction + `<div class='ix-materials'>` + materials + `</div></details>`
   }
   if (!rows) rows = `<div class='ix-empty'>还没有课程。生成第一份课件吧。</div>`
-  // 静态学习中心双击打开时走同目录快照；通过服务访问时由 IX_JS 切到实时接口。
-  const glossaryHref = options.dynamic ? '/api/study-assistant/glossary-view' : '术语库.html'
-  const glossLink = rootRel ? `<div><a class='ix-gloss' href='` + glossaryHref + `' target='_blank'>术语库</a></div>` : ''
-  const version = crypto.createHash('sha1').update(JSON.stringify(courses.map(c => [c.rel, c.materials.map(item => [item.base, item.updatedAt])]))).digest('hex').slice(0, 12)
-  return `<!DOCTYPE html><html lang='zh-CN' data-center-version='` + version + `'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>学习中心 · 宝宝巴士</title><style>` + INDEX_CSS + `</style></head><body><div class='wrap'><h1>宝宝巴士 · 学习中心</h1><div class='ix-note'>` + xmlEsc(String(courses.length)) + ` 门课程 · 选择课程后查看课件</div>` + glossLink + rows + `</div><script>` + IX_JS + `</script></body></html>`
+  const version = crypto.createHash('sha1').update(JSON.stringify(courses.map(c => {
+    let glossaryUpdatedAt = 0
+    try { glossaryUpdatedAt = fs.statSync(path.join(c.dir, '术语库.html')).mtimeMs } catch (e) {}
+    return [c.rel, glossaryUpdatedAt, c.materials.map(item => [item.base, item.updatedAt])]
+  }))).digest('hex').slice(0, 12)
+  return `<!DOCTYPE html><html lang='zh-CN' data-center-version='` + version + `'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>学习中心 · 宝宝巴士</title><style>` + INDEX_CSS + `</style></head><body><div class='wrap'><h1>宝宝巴士 · 学习中心</h1><div class='ix-note'>` + xmlEsc(String(courses.length)) + ` 门课程 · 每门课程使用独立术语库</div>` + rows + `</div><script>` + IX_JS + `</script></body></html>`
 }
 
 /** 创建/刷新项目内部的静态学习中心，返回 HTML 文件绝对路径。 */

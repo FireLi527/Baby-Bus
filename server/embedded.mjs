@@ -56,7 +56,7 @@ JSON 结构（slides 按讲解顺序；每页含 title + blocks）：
 1. 公式、例题、实验数字、推导和结论都必须能回指资料正文；资料没有就不要生成。
 2. 不强制每页出现数字、公式、例题或练习；类比只作解释，不能冒充资料事实或论文证据。
 3. 不要翻译、不要总结课件：要讲解。追问每一个「为什么」并把答案写出来。
-4. 术语中英对照：正文优先用中文名称，尽量不用缩写；英文全称和资料明确给出的缩写收进可点击术语提示及学习中心的独立术语库，不在单份课件末尾追加术语表页；公式符号仍需逐个解释；末尾 1~2 页小结。
+4. 术语中英对照：正文优先用中文名称，尽量不用缩写；英文全称和资料明确给出的缩写收进可点击术语提示及学习中心的本课程独立术语库，不在单份课件末尾追加术语表页；同一概念的大小写与长短写法统一为一个规范名并保留别名；公式符号仍需逐个解释；末尾 1~2 页小结。
 5. 一页通常 2~5 个内容块；过密就增加页面或拆页，不得删减资料内容；不写「学习方法」等元说明。
 6. 资料图承担定义、流程、比较、公式推导或证据作用时，不能只贴图和写图注。复杂图可以拆成多页逐步讲，但每次复用都要明确说明本页聚焦的不同区域或新增步骤；禁止连续重复同一张或近似渐进图而只更换标题、图注。
 
@@ -387,7 +387,7 @@ export const RENDER_JS = `(function(){
   if (glossary.length) { try {
     var aliasSet = new Set()
     glossary.forEach(function(g){
-      ;[g.term, g.english, g.abbr].forEach(function(alias){ alias = String(alias || '').trim(); if (alias.length >= 2) aliasSet.add(alias) })
+      ;[g.term, g.english, g.abbr].concat(Array.isArray(g.aliases) ? g.aliases : []).forEach(function(alias){ alias = String(alias || '').trim(); if (alias.length >= 2) aliasSet.add(alias) })
     })
     var terms = Array.from(aliasSet).sort(function(a, b){ return b.length - a.length })
     var escRe = function(s) {
@@ -402,23 +402,25 @@ export const RENDER_JS = `(function(){
       return out
     }
     if (!terms.length) throw new Error('没有可标注的术语别名')
-    var re = new RegExp('(' + terms.map(escRe).join('|') + ')', 'g')
+    var re = new RegExp('(' + terms.map(escRe).join('|') + ')', 'gi')
     var infoByTerm = new Map()
+    var glossKey = function(alias){ return String(alias || '').trim().toLocaleLowerCase() }
     glossary.forEach(function(g){
       var seenAliases = new Set()
-      ;[g.term, g.english, g.abbr].forEach(function(alias){
+      ;[g.term, g.english, g.abbr].concat(Array.isArray(g.aliases) ? g.aliases : []).forEach(function(alias){
         alias = String(alias || '').trim()
-        if (alias.length < 2 || seenAliases.has(alias)) return
-        seenAliases.add(alias)
-        var items = infoByTerm.get(alias) || []
+        var key = glossKey(alias)
+        if (alias.length < 2 || seenAliases.has(key)) return
+        seenAliases.add(key)
+        var items = infoByTerm.get(key) || []
         items.push({ label: glossLabel(g), explain: g.explain, formula: g.formula || '' })
-        infoByTerm.set(alias, items)
+        infoByTerm.set(key, items)
       })
     })
     var pop = el('div', 'gloss-pop'); document.body.appendChild(pop)
     function showPop(t) {
       var key = t.getAttribute('data-term') || t.textContent || ''
-      var infos = infoByTerm.get(key) || []
+      var infos = infoByTerm.get(glossKey(key)) || []
       pop.setAttribute('data-term', key)
       pop.innerHTML = ''
       if (infos.length > 1) {

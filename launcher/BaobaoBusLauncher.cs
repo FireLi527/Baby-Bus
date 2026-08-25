@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -24,6 +25,9 @@ internal static class BaobaoBusLauncher
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr window);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr window);
@@ -73,47 +77,43 @@ internal static class BaobaoBusLauncher
             throw new InvalidOperationException("程序文件不完整。请先运行 npm install 和 npm run build，或重新下载完整轻量版。");
 
         Process backend = null;
-        var startedBackend = false;
-        if (!IsHealthy())
+        string profile = null;
+        try
         {
-            var node = FindNode(root);
-            if (node == null)
+            if (!IsHealthy())
             {
-                var result = MessageBox.Show(
-                    "未找到 Node.js 22 或更高版本。\n\n宝宝巴士轻量版复用本机 Node 和 Edge，因此不会携带上百 MB 的 Chromium。是否打开 Node.js 下载页？",
-                    "需要安装 Node.js",
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Information);
-                if (result == DialogResult.Yes) Process.Start("https://nodejs.org/zh-cn/download");
-                return;
+                var node = FindNode(root);
+                if (node == null)
+                {
+                    var result = MessageBox.Show(
+                        "未找到 Node.js 22 或更高版本。\n\n宝宝巴士轻量版复用本机 Node 和 Edge，因此不会携带上百 MB 的 Chromium。是否打开 Node.js 下载页？",
+                        "需要安装 Node.js",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Information);
+                    if (result == DialogResult.Yes) Process.Start("https://nodejs.org/zh-cn/download");
+                    return;
+                }
+                backend = StartBackend(node, root, serverFile, appData);
+                if (!WaitForHealth(backend, 30000))
+                    throw new InvalidOperationException("本地服务没有成功启动。详情请查看：\n" + logFile);
             }
-            backend = StartBackend(node, root, serverFile, appData);
-            startedBackend = true;
-            if (!WaitForHealth(backend, 30000))
-            {
-                if (backend != null && !backend.HasExited) backend.Kill();
-                throw new InvalidOperationException("本地服务没有成功启动。详情请查看：\n" + logFile);
-            }
-        }
 
-        var browser = FindEdge();
-        if (browser == null)
-        {
-            if (startedBackend) TryShutdown();
-            throw new InvalidOperationException("未找到 Microsoft Edge。Windows 10/11 通常已自带 Edge，请修复或重新安装后再试。");
-        }
+            var browser = FindEdge();
+            if (browser == null)
+                throw new InvalidOperationException("未找到 Microsoft Edge。Windows 10/11 通常已自带 Edge，请修复或重新安装后再试。");
 
-        var profile = Path.Combine(Path.GetTempPath(), "BaobaoBusEdgeProfile");
-        TryDeleteProfile(profile);
-        var edge = StartEdge(browser, profile);
-        edge.WaitForExit();
-        Thread.Sleep(300);
-        var stopped = TryShutdown();
-        if (stopped && backend != null && !backend.HasExited)
-        {
-            if (!backend.WaitForExit(3000)) backend.Kill();
+            profile = Path.Combine(Path.GetTempPath(), "BaobaoBusEdgeProfile");
+            TryDeleteProfile(profile);
+            var existingWindows = CaptureAppWindows();
+            var edge = StartEdge(browser, profile);
+            try { WaitForAppWindowToClose(edge, existingWindows); }
+            finally { edge.Dispose(); }
         }
-        TryDeleteProfile(profile);
+        finally
+        {
+            StopBackend(backend);
+            if (profile != null) TryDeleteProfile(profile);
+        }
     }
 
     private static Process StartBackend(string node, string root, string serverFile, string appData)
@@ -224,11 +224,89 @@ internal static class BaobaoBusLauncher
         catch { return false; }
     }
 
+    private static void WaitForAppWindowToClose(Process edge, HashSet<IntPtr> existingWindows)
+    {
+        // Edge 是多进程应用：启动进程可能退出或在窗口关闭后继续驻留，不能用
+        // Process.WaitForExit() 代表桌面窗口的生命周期。
+        if (Environment.GetEnvironmentVariable("BAOBAO_START_HIDDEN") == "1")
+        {
+            var hiddenDeadline = DateTime.UtcNow.AddSeconds(30);
+            while (DateTime.UtcNow < hiddenDeadline && !edge.HasExited) Thread.Sleep(100);
+            return;
+        }
+
+        var appWindow = IntPtr.Zero;
+        var openDeadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < openDeadline && appWindow == IntPtr.Zero)
+        {
+            appWindow = FindNewAppWindow(existingWindows);
+            if (appWindow == IntPtr.Zero) Thread.Sleep(100);
+        }
+        if (appWindow == IntPtr.Zero) throw new InvalidOperationException("应用窗口没有成功打开。");
+
+        // 只跟踪本次启动创建的系统窗口句柄；标题变化和 Edge 后台进程都不会干扰退出。
+        while (IsWindow(appWindow)) Thread.Sleep(150);
+    }
+
+    private static HashSet<IntPtr> CaptureAppWindows()
+    {
+        var windows = new HashSet<IntPtr>();
+        EnumWindows(delegate(IntPtr window, IntPtr state)
+        {
+            if (IsAppWindow(window)) windows.Add(window);
+            return true;
+        }, IntPtr.Zero);
+        return windows;
+    }
+
+    private static IntPtr FindNewAppWindow(HashSet<IntPtr> existingWindows)
+    {
+        var found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr window, IntPtr state)
+        {
+            if (!existingWindows.Contains(window) && IsAppWindow(window))
+            {
+                found = window;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private static bool IsAppWindow(IntPtr window)
+    {
+        if (!IsWindowVisible(window)) return false;
+        var text = new StringBuilder(512);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString().IndexOf("宝宝巴士", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static void StopBackend(Process backend)
+    {
+        TryShutdown();
+        if (backend == null) return;
+        try
+        {
+            if (backend.HasExited) return;
+            if (!backend.WaitForExit(4000)) backend.Kill();
+        }
+        catch
+        {
+            try { if (!backend.HasExited) backend.Kill(); } catch { }
+        }
+        finally
+        {
+            backend.Dispose();
+        }
+    }
+
     private static bool TryShutdown()
     {
         try
         {
-            var bytes = Encoding.UTF8.GetBytes("{}");
+            // 关闭桌面窗口就是明确退出应用；即使生成任务仍在运行也要终止服务。
+            var bytes = Encoding.UTF8.GetBytes("{\"force\":true}");
             var request = (HttpWebRequest)WebRequest.Create(ShutdownUrl);
             request.Method = "POST";
             request.ContentType = "application/json; charset=utf-8";

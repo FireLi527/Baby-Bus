@@ -30,19 +30,20 @@ export default function StatusCard({ s }) {
   if (!s || !s.found) return null
   if (s.stage === 'done' || s.stage === 'error') return null
   const tl = s.timeline || []
-  const current = s.stage || ''
   const latestFileEvent = [...tl].reverse().find(e => e.currentFile || legacyFileName(e.detail))
   const currentFile = s.currentFile || (latestFileEvent && (latestFileEvent.currentFile || legacyFileName(latestFileEvent.detail))) || ''
   const fileTimeline = currentFile
     ? tl.filter(e => e.currentFile === currentFile || (!e.currentFile && legacyFileName(e.detail) === currentFile))
     : tl.filter(e => e.stage !== 'batch')
+  const latestStageEvent = [...fileTimeline].reverse().find(e => stageKeys.has(e.stage))
+  const current = (latestStageEvent && latestStageEvent.stage) || s.stage || ''
   const seen = {}
   fileTimeline.forEach(e => { seen[e.stage] = true })
   let secDone = 0, secTotal = 0, secName = ''
-  fileTimeline.forEach(e => {
+  for (const e of [...fileTimeline].reverse()) {
     const m = /生成小节 (\d+)\/(\d+)（(.+?)）/.exec(e.detail || '')
-    if (m) { secDone = Math.max(secDone, parseInt(m[1], 10)); secTotal = parseInt(m[2], 10); secName = m[3] }
-  })
+    if (m) { secDone = parseInt(m[1], 10); secTotal = parseInt(m[2], 10); secName = m[3]; break }
+  }
   let fixInfo = ''
   fileTimeline.forEach(e => { if (e.stage === 'fix') fixInfo = e.detail || '' })
   const stages = STAGE_FLOW.map(([key, label]) => (

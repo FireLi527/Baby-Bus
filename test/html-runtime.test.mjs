@@ -7,7 +7,8 @@ import test from 'node:test'
 import { PAGE_CSS, RENDER_JS } from '../server/embedded.mjs'
 import { collectLayoutProblems } from '../server/check.js'
 import { buildHtmlDoc, HTML_RENDERER_VERSION, refreshGeneratedCourseHtml } from '../server/html.js'
-import { buildGlossaryHtml, glossaryLabel, glossaryVersion, mergeGlossary, writeGlossaryStore } from '../server/glossary.js'
+import { buildGlossaryHtml, deriveGlossaryFromSlides, glossaryLabel, glossaryVersion, mergeGlossary, normalizeGlossaryList, recoverEmptyGlossaries, writeGlossaryStore } from '../server/glossary.js'
+import { pptxParts } from '../server/pptx.js'
 import { handle, setRuntimeCfg } from '../server/routes.js'
 
 const sampleCourse = {
@@ -44,6 +45,7 @@ test('单份课件不再追加术语表幻灯片，术语数据仅用于悬停�
   assert.doesNotMatch(RENDER_JS, /txt\([^\n]*'术语表/)
   assert.match(RENDER_JS, /var infoByTerm = new Map\(\)/)
   assert.match(RENDER_JS, /var pop = el\('div', 'gloss-pop'\)/)
+  assert.equal(pptxParts(sampleCourse, sampleCourse.title).some(slide => slide.title === '术语表'), false)
 })
 
 test('术语包含中英文与缩写，重复缩写保留多义项而不合并', () => {
@@ -61,6 +63,69 @@ test('术语包含中英文与缩写，重复缩写保留多义项而不合并',
   const html = buildGlossaryHtml(merged)
   assert.match(html, /位置编码（Positional Encoding\/PE）/)
   assert.match(html, /隐私增强（Privacy Enhancing\/PE）/)
+})
+
+test('术语按规范名和别名去重，但绝不按重复缩写合并', () => {
+  const caseVariants = normalizeGlossaryList([
+    { term: 'word2vec', english: 'Word2Vec', explain: '把词表示成向量' },
+    { term: 'Word2Vec', english: 'Word2Vec', explain: '把词表示成向量' },
+  ])
+  assert.equal(caseVariants.length, 1)
+  assert.equal(caseVariants[0].term, 'Word2Vec')
+
+  const chineseAliases = normalizeGlossaryList([
+    { term: '稠密词向量', aliases: ['稠密向量'], english: 'Dense Word Vector', explain: '大多数维度都有值的词向量' },
+    { term: '稠密向量', english: 'Dense Word Vector', explain: '大多数维度都有值的词向量' },
+  ])
+  assert.equal(chineseAliases.length, 1)
+  assert.deepEqual(chineseAliases[0].aliases, ['稠密向量'])
+  const html = buildGlossaryHtml(chineseAliases, { courseName: '自然语言处理' })
+  assert.match(html, /自然语言处理 · 术语库/)
+  assert.match(html, /别名：稠密向量/)
+  assert.match(RENDER_JS, /concat\(Array\.isArray\(g\.aliases\)/)
+  assert.match(RENDER_JS, /new RegExp\([^\n]+, 'gi'\)/)
+})
+
+test('模型术语结果为空时，只从课件已有的明确中英对照恢复术语', () => {
+  const recovered = deriveGlossaryFromSlides([{
+    title: '词嵌入（word embedding）的基本思想',
+    blocks: [{
+      type: 'text',
+      content: '词嵌入（word embedding）把离散词语映射为连续向量。这里只提到优化器，但没有给出英文名称。',
+    }],
+  }])
+  assert.deepEqual(recovered.map(item => item.term), ['词嵌入'])
+  assert.equal(recovered[0].english, 'word embedding')
+  assert.match(recovered[0].explain, /映射为连续向量/)
+  assert.equal(recovered.some(item => item.term === '优化器'), false)
+})
+
+test('启动时会就地恢复空课程术语库，并同步 plan 与已有 HTML', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baobao-glossary-recover-'))
+  const courseDir = path.join(root, '文档分析')
+  fs.mkdirSync(courseDir, { recursive: true })
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const planFile = path.join(courseDir, '第五周.plan.json')
+  const htmlFile = path.join(courseDir, '第五周.course.html')
+  fs.writeFileSync(planFile, JSON.stringify({
+    title: '第五周',
+    glossary: [],
+    slides: [{ title: '词嵌入', blocks: [{ type: 'text', content: '词嵌入（word embedding）把词表示为连续向量。' }] }],
+  }), 'utf8')
+  fs.writeFileSync(path.join(courseDir, '术语库.json'), '[]', 'utf8')
+  fs.writeFileSync(htmlFile, '<html>空术语旧课件</html>', 'utf8')
+
+  const result = recoverEmptyGlossaries(root, { port: 8787 })
+  assert.deepEqual({ courses: result.recoveredCourses, terms: result.recoveredTerms, plans: result.updatedPlans, html: result.updatedHtml }, {
+    courses: 1, terms: 1, plans: 1, html: 1,
+  })
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(courseDir, '术语库.json'), 'utf8')).map(item => item.term), ['词嵌入'])
+  assert.deepEqual(JSON.parse(fs.readFileSync(planFile, 'utf8')).glossary.map(item => item.term), ['词嵌入'])
+  assert.match(fs.readFileSync(htmlFile, 'utf8'), /baobao-renderer-version/)
+  assert.match(fs.readFileSync(path.join(courseDir, '术语库.html'), 'utf8'), /词嵌入（word embedding）/)
+
+  const second = recoverEmptyGlossaries(root, { port: 8787 })
+  assert.equal(second.recoveredCourses, 0)
 })
 
 test('每张 Reveal 幻灯片可独立纵向滚动并在翻页时回到顶部', () => {
@@ -165,7 +230,7 @@ test('术语库生成离线快照并通过版本接口实时更新', t => {
   const first = [{ term: '输入', english: 'Input', abbr: '', explain: '送入系统的资料', formula: '' }]
   const second = [...first, { term: '损失函数', english: 'Loss Function', abbr: '', explain: '衡量预测误差', formula: '$$L=1$$' }]
 
-  const standalone = buildGlossaryHtml(first, { dataUrl: 'http://127.0.0.1:8787/api/study-assistant/glossary-data' })
+  const standalone = buildGlossaryHtml(first, { courseName: '测试课程', dataUrl: 'http://127.0.0.1:8787/api/study-assistant/glossary-data?course=' + encodeURIComponent('测试课程') })
   assert.match(standalone, /data-glossary-version=/)
   assert.match(standalone, /自动更新/)
   assert.match(standalone, /setInterval\(sync,2000\)/)
@@ -174,37 +239,47 @@ test('术语库生成离线快照并通过版本接口实时更新', t => {
   assert.match(standalone, /data:font\/woff2;base64,/)
   assert.doesNotMatch(standalone, /<(?:link|script)[^>]+(?:href|src)=/)
 
-  writeGlossaryStore(root, first, { port: 8787 })
+  writeGlossaryStore(root, first, { port: 8787, course: '测试课程', courseName: '测试课程' })
   const before = fs.readFileSync(path.join(root, '术语库.html'), 'utf8')
   assert.match(before, /送入系统的资料/)
-  assert.match(before, /http:\/\/127\.0\.0\.1:8787\/api\/study-assistant\/glossary-data/)
-  writeGlossaryStore(root, second, { port: 8787 })
+  assert.match(before, /glossary-data\?course=%E6%B5%8B%E8%AF%95%E8%AF%BE%E7%A8%8B/)
+  writeGlossaryStore(root, second, { port: 8787, course: '测试课程', courseName: '测试课程' })
   const after = fs.readFileSync(path.join(root, '术语库.html'), 'utf8')
   assert.notEqual(glossaryVersion(first), glossaryVersion(second))
   assert.notEqual(after, before)
   assert.match(after, /损失函数/)
 })
 
-test('术语数据接口每次请求都返回磁盘中的最新版本', async t => {
+test('术语数据接口按课程隔离，并返回对应课程磁盘中的最新版本', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'baobao-glossary-api-'))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
   setRuntimeCfg({ storageDir: root, dataDir: root })
-  writeGlossaryStore(root, [{ term: '初始术语', explain: '第一版' }], { port: 8787 })
+  const firstCourse = path.join(root, '课程甲')
+  const secondCourse = path.join(root, '课程乙')
+  for (const [dir, title] of [[firstCourse, '甲课件'], [secondCourse, '乙课件']]) {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, title + '.course.html'), '<html></html>', 'utf8')
+  }
+  writeGlossaryStore(firstCourse, [{ term: '初始术语', explain: '第一版' }], { port: 8787, course: '课程甲', courseName: '课程甲' })
+  writeGlossaryStore(secondCourse, [{ term: '独立术语', explain: '乙课程内容' }], { port: 8787, course: '课程乙', courseName: '课程乙' })
   const server = http.createServer((req, res) => {
     handle(req, res).catch(error => { res.statusCode = 500; res.end(String(error)) })
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(() => server.close())
   const address = server.address()
-  const url = `http://127.0.0.1:${address.port}/api/study-assistant/glossary-data`
+  const url = `http://127.0.0.1:${address.port}/api/study-assistant/glossary-data?course=` + encodeURIComponent('课程甲')
 
   const first = await fetch(url).then(response => response.json())
-  writeGlossaryStore(root, [{ term: '最新术语', explain: '第二版' }], { port: 8787 })
+  writeGlossaryStore(firstCourse, [{ term: '最新术语', explain: '第二版' }], { port: 8787, course: '课程甲', courseName: '课程甲' })
   const response = await fetch(url)
   const second = await response.json()
   assert.equal(response.headers.get('access-control-allow-origin'), '*')
   assert.notEqual(second.version, first.version)
   assert.deepEqual(second.glossary.map(item => item.term), ['最新术语'])
+  const isolated = await fetch(`http://127.0.0.1:${address.port}/api/study-assistant/glossary-data?course=` + encodeURIComponent('课程乙')).then(value => value.json())
+  assert.deepEqual(isolated.glossary.map(item => item.term), ['独立术语'])
+  assert.equal((await fetch(`http://127.0.0.1:${address.port}/api/study-assistant/glossary-data`)).status, 400)
 })
 
 test('渲染自检以固定画布为基准，不把内容自身高度误报成溢出', () => {

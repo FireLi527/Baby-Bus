@@ -14,6 +14,7 @@ function ResultView({ r }) {
         {r.results.map((x, i) => x.ok ? (
           <div key={i} className="la-batchitem">
             <div className="la-batchname">{x.title || x.name || x.file}</div>
+            {(x.warnings || []).map((warning, warningIndex) => <div key={'w' + warningIndex} className="la-warn">{warning}</div>)}
             {x.files && x.files.html && x.files.html.url ? <a className="la-link" href={x.files.html.url} target="_blank" rel="noreferrer"><span>HTML 课件</span><small>{x.files.html.rel}</small></a> : null}
             {x.files && x.files.pptx && x.files.pptx.url ? <a className="la-link" href={x.files.pptx.url} target="_blank" rel="noreferrer"><span>PPTX</span><small>{x.files.pptx.rel}</small></a> : null}
           </div>
@@ -33,7 +34,8 @@ function ResultView({ r }) {
   if (r.indexPath) items.push(['学习中心', { rel: r.indexPath, url: r.indexUrl }])
   return (
     <div className="la-res">
-      <h4>生成完成：{r.title || ''}</h4>
+      <h4>{r.warnings && r.warnings.length ? '生成完成（有质量提醒）' : '生成完成'}：{r.title || ''}</h4>
+      {(r.warnings || []).map((warning, i) => <div key={i} className="la-warn">{warning}</div>)}
       {items.map(([label, f], i) => f && f.url ? (
         <a key={i} className="la-link" href={f.url} target="_blank" rel="noreferrer"><span>{label}</span><small>{f.rel}</small></a>
       ) : (
@@ -354,7 +356,6 @@ function Panel() {
           {busy ? '生成中…' : (checkedKeys.length > 1 && multiMode === 'combined' ? '合并生成 1 份课件' : (checkedKeys.length ? '分别生成 ' + checkedKeys.length + ' 份课件' : '生成课件'))}
         </button>
         {liveStatus ? <StatusCard s={liveStatus} /> : null}
-        {busy ? <div className="la-hint" style={{ padding: '6px 2px 0' }}>可以关闭页面；重新打开后可继续查看进度。</div> : null}
         {err ? <div className="la-err">{err}</div> : null}
         {result ? <ResultView r={result} /> : null}
       </div>

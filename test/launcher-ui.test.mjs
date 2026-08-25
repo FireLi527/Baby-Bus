@@ -34,8 +34,14 @@ test('生成链路的 Windows 子进程全部隐藏控制台窗口', () => {
 test('桌面窗口使用系统标题栏，关闭唯一的叉后通知服务退出', () => {
   const launcher = source('launcher/BaobaoBusLauncher.cs')
   const app = source('client/src/App.jsx')
-  assert.match(launcher, /edge\.WaitForExit\(\)/)
+  assert.doesNotMatch(launcher, /edge\.WaitForExit\(\)/)
+  assert.match(launcher, /CaptureAppWindows\(\)/)
+  assert.match(launcher, /WaitForAppWindowToClose\(edge, existingWindows\)/)
+  assert.match(launcher, /while \(IsWindow\(appWindow\)\)/)
+  assert.match(launcher, /finally[\s\S]*StopBackend\(backend\)/)
+  assert.match(launcher, /\{\\"force\\":true\}/)
   assert.match(launcher, /TryShutdown\(\)/)
+  assert.match(source('server/index.js'), /closeAllConnections/)
   assert.match(source('server/routes.js'), /FolderBrowserDialog/)
   assert.doesNotMatch(app, /ShutdownButton|关闭服务/)
 })
@@ -70,8 +76,12 @@ test('参考模板抽取默认写入候选文件，不能静默覆盖正式模�
 
 test('生成状态轮询串行执行，并在切换目录时清理旧选择', () => {
   const app = source('client/src/App.jsx')
+  const status = source('client/src/StatusCard.jsx')
   assert.doesNotMatch(app, /setInterval\(tick/)
   assert.match(app, /active\.timer = setTimeout\(tick, 1500\)/)
   assert.match(app, /setSel\(''\); setSelName\(''\)/)
   assert.match(app, /return stopPoll/)
+  assert.doesNotMatch(app, /可以关闭页面/)
+  assert.match(status, /latestStageEvent/)
+  assert.match(status, /for \(const e of \[\.\.\.fileTimeline\]\.reverse\(\)\)/)
 })

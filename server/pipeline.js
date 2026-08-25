@@ -12,7 +12,7 @@ import { checkHtml } from './check.js'
 import { buildHtmlDoc } from './html.js'
 import { buildPptxXml, pptxParts } from './pptx.js'
 import { refreshLearningCenter } from './archive.js'
-import { glossaryLabel, normalizeGlossaryList, readGlossaryStore, writeGlossaryStore, mergeGlossary } from './glossary.js'
+import { deriveGlossaryFromSlides, glossaryLabel, normalizeGlossaryList, readGlossaryStore, writeGlossaryStore, mergeGlossary } from './glossary.js'
 import { SYS, PY } from './embedded.mjs'
 
 const SAFE_SYS = SYS + `
@@ -594,6 +594,7 @@ export async function generate(cfg, req, runtime = {}) {
     }
     courseDir = existingDir
   }
+  const courseRel = path.relative(storageDir, courseDir).split(path.sep).join('/')
 
   reportProgress('extract', requestedFiles.length > 1 ? '解析 0/' + requestedFiles.length + ' 份资料…' : '解析课件文本…')
   if (!requestedFiles.length) return fail('未指定文件')
@@ -848,7 +849,7 @@ export async function generate(cfg, req, runtime = {}) {
     const total = sections.length
     const idxs = targets && targets.length ? targets : sections.map((_, i) => i)
     let done = 0
-    reportProgress('sections', '生成小节 ' + (idxs.length < total ? idxs.length + '/' + total + '（定向）' : '0/' + total) + (feedback ? '（修正轮）' : ''))
+    reportProgress('sections', '生成小节 0/' + idxs.length + (idxs.length < total ? '（定向修正，共 ' + total + ' 节）' : '') + (feedback ? '（修正轮）' : ''))
     const filled = await mapLimit(idxs, 3, async (idx) => {
       const arr = await buildSection(sections[idx], idx, feedback, '')
       done++
@@ -879,15 +880,31 @@ export async function generate(cfg, req, runtime = {}) {
     return (slidesArr || []).map((s, i) => (numbered ? '[' + (i + 1) + '] ' : '') + '「' + ((s && s.title) || '封面') + '」\n' + JSON.stringify((s && s.blocks) || [])).join('\n')
   }
   async function buildGlossary(slidesNow, storeNow) {
-    const serial = serializeSlides(slidesNow, false)
-    const storeLines = normalizeGlossaryList(storeNow).slice(0, 200).map(g => [g.term, g.english || '（英文待补）', g.abbr || '（无缩写）', g.explain, g.formula || '（无公式）'].join('｜')).join('\n')
-    const prompt = '请把下面课件正文里实际出现的专有名词与数学符号收进术语表。每条术语必须拆成：term 中文标准名称、english 英文全称、abbr 英文缩写、explain 一句不含公式的大白话解释。abbr 只能填写资料正文明确出现或明确给出的缩写；术语没有缩写时填写空字符串，禁止自行发明缩写。英文全称以资料原文为准；term 用准确中文表达。formula 不是必填项：只有课件正文已经明确出现该术语的定义公式时，才忠实复制并规范为 LaTeX；正文没有公式就必须填写空字符串，绝不能因为它通常有“标准公式”而自行补写。\n\n规则：已有术语库只用于复用措辞及补齐字段。术语已在库中时可原样复用 english、abbr 和 explain；只有同一公式也确实出现在本课正文时才可复用 formula，否则 formula 留空。同一个缩写可能对应多个不同概念：遇到这种情况必须按不同中文名和英文全称输出多条记录，允许 abbr 重复，绝不能仅凭缩写把它们合并。论文的 References / Bibliography / 参考文献条目、作者名、期刊名与 DOI 不进入术语表。\n\n【已有术语库：中文｜英文｜缩写｜解释｜公式】\n' + storeLines.slice(0, 20000) + '\n\n【课件内容】\n' + serial.slice(0, 70000) + '\n\n只输出 JSON 对象本体：{ "glossary": [ { "term": "中文标准名称", "english": "英文全称", "abbr": "资料中明确出现的缩写，没有则为空字符串", "explain": "一句大白话解释", "formula": "正文已有则填 LaTeX，否则为空字符串" } ] }。按出现顺序排列，最多 40 条；正文没出现过的词不要列。'
-    try {
-      const r = await trackedCall('术语库', { system: SAFE_SYS, user: prompt, maxTokens: 2500, timeoutMs: 120000 })
-      const g = parseCourse(r)
-      if (g && Array.isArray(g.glossary)) return normalizeGlossaryList(g.glossary).filter(x => x.term && x.english && x.explain).slice(0, 40)
-    } catch (e) {}
-    return []
+    const allSlides = Array.isArray(slidesNow) ? slidesNow : []
+    const sampledSlides = allSlides.length <= 70 ? allSlides : [...new Set(Array.from({ length: 70 }, (_, index) => Math.round(index * (allSlides.length - 1) / 69)))].map(index => allSlides[index])
+    const serial = serializeSlides(sampledSlides, false)
+    const groundedFallback = deriveGlossaryFromSlides(allSlides)
+    const storeLines = normalizeGlossaryList(storeNow).slice(0, 200).map(g => [g.term, (g.aliases || []).join('、') || '（无别名）', g.english || '（英文待补）', g.abbr || '（无缩写）', g.explain, g.formula || '（无公式）'].join('｜')).join('\n')
+    const primaryPrompt = '请把下面课件正文里实际出现的核心专有名词收进本课程术语库。每条必须包含：term 中文规范名、aliases 正文中同一概念的其他写法、english 英文全称、abbr 资料明确出现的缩写（没有则为空）、explain 一句大白话解释、formula 正文已有的定义公式（没有则为空）。正文没有公式就必须填写空字符串。不得发明英文、缩写、公式或正文未出现的术语。\n\n去重规则：同一概念的大小写、空格、连字符和中文长短写法合并，例如 Word2Vec/word2vec；上下文明确同义时稠密词向量/稠密向量也合并。同一概念无论有多少写法都只能输出一条，其他写法放入 aliases。不同概念即使缩写相同也绝不能合并，允许 abbr 重复。References / Bibliography / 参考文献及其后的条目、作者、期刊和 DOI 不进入术语库。\n\n【当前课程已有术语：规范名｜别名｜英文｜缩写｜解释｜公式】\n' + storeLines.slice(0, 12000) + '\n\n【课件内容（按全课均匀抽取）】\n' + serial.slice(0, 45000) + '\n\n只输出 JSON 对象本体：{ "glossary": [ { "term": "中文规范名", "aliases": ["正文中的同义写法"], "english": "英文全称", "abbr": "资料中明确出现的缩写，没有则为空字符串", "explain": "解释", "formula": "" } ] }。最多 24 条。'
+    const retryPrompt = '上一次术语库结果为空或 JSON 不完整。请从下面课件中提取 8~18 个最核心且正文明确出现的术语。每条都必须给出中文 term、正文中的英文全称 english、资料明确给出的缩写 abbr（没有则空字符串）和一句 explain；不确定英文全称的词不要输出，禁止凭常识补写。只输出 {"glossary":[...]} JSON 对象，不要解释。\n\n【课件内容】\n' + serial.slice(0, 28000)
+    const parseGlossaryResponse = raw => {
+      const object = parseCourse(raw)
+      const list = object && (Array.isArray(object.glossary) ? object.glossary : (Array.isArray(object.terms) ? object.terms : null))
+      const bare = list || parseCourseArray(raw) || []
+      return normalizeGlossaryList(bare).filter(item => item.term && item.english && item.explain).slice(0, 40)
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await trackedCall(attempt ? '术语库重试' : '术语库', { system: SAFE_SYS, user: attempt ? retryPrompt : primaryPrompt, maxTokens: attempt ? 2200 : 2600, timeoutMs: 120000 })
+        const generated = parseGlossaryResponse(raw)
+        if (generated.length) return mergeGlossary(groundedFallback, generated, true).filter(item => item.term && item.english && item.explain).slice(0, 40)
+        trace(jobId, 'glossary-warning', '术语库第 ' + (attempt + 1) + ' 次返回为空或缺少必要字段', { ok: false, attempt: attempt + 1, fallbackCount: groundedFallback.length })
+      } catch (error) {
+        trace(jobId, 'glossary-warning', '术语库第 ' + (attempt + 1) + ' 次生成失败：' + String(error && error.message || error).slice(0, 100), { ok: false, attempt: attempt + 1, fallbackCount: groundedFallback.length })
+      }
+    }
+    if (groundedFallback.length) trace(jobId, 'glossary-fallback', '模型术语结果不可用，已从课件明确中英对照中恢复 ' + groundedFallback.length + ' 个术语', { ok: true, count: groundedFallback.length })
+    return groundedFallback
   }
   async function reviewDeck(slidesNow, glossaryNow) {
     const serial = serializeSlides(slidesNow, true)
@@ -925,6 +942,7 @@ export async function generate(cfg, req, runtime = {}) {
   let fixFeedback = ''
   let sectionSpans = []
   let targetIdxs = null
+  const qualityWarnings = []
   const MAX_ROUNDS = 2
   function problemTargets(problems, spans, sectionResults) {
     const targets = new Set()
@@ -965,8 +983,13 @@ export async function generate(cfg, req, runtime = {}) {
         trace(jobId, 'figure-teaching-retry', '启动自动图片修正轮：' + details, { ok: true, sections: targetIdxs.map(index => index + 1) })
         continue
       }
-      return fail('图片讲解检查未通过：' + details + '。程序已自动完成初次重写和定向修正，但模型仍只返回图注或笼统说明；请改用图片理解或结构化输出能力更稳定的模型。', {
-        figureProblems: [...figureQualityMissingSet.entries()].flatMap(([index, problems]) => problems.map(problem => ({ section: index + 1, ...problem }))).slice(0, 100),
+      const warning = '图片讲解仍有待完善：' + details + '。程序已自动完成初次重写和定向修正，现保留并交付已生成成果。'
+      qualityWarnings.push(warning)
+      reportProgress('fix', warning)
+      trace(jobId, 'figure-teaching-degraded', warning, {
+        ok: false,
+        delivered: true,
+        problems: [...figureQualityMissingSet.entries()].flatMap(([index, problems]) => problems.map(problem => ({ section: index + 1, ...problem }))).slice(0, 100),
       })
     }
     if (coverageMissingSet.size) {
@@ -999,7 +1022,7 @@ export async function generate(cfg, req, runtime = {}) {
       sectionSpans.push({ start, end: cursor - 1 })
     }
     reportProgress('summary', '生成小结与术语库（并行）…')
-    const store = readGlossaryStore(rootRel)
+    const store = readGlossaryStore(courseDir)
     const [sum, freshGlossary] = await Promise.all([buildSummary(slides), buildGlossary(slides, store)])
     if (sum) slides.push({ ...sum, sourceRefs: modelSources.map(source => source.id) })
     else missingSet.add('小结')
@@ -1042,7 +1065,7 @@ export async function generate(cfg, req, runtime = {}) {
         blocks: [{ type: 'bullets', items: sourceManifest.map(source => source.id + ' · ' + source.name) }],
       })
     }
-    writeGlossaryStore(rootRel, glossary, { port: cfg.port })
+    writeGlossaryStore(courseDir, glossary, { port: cfg.port, course: courseRel, courseName: course })
 
     courseData = {
       title: outline.title || course,
@@ -1106,7 +1129,7 @@ export async function generate(cfg, req, runtime = {}) {
 
   reportProgress('done', '完成，共 ' + (courseData.slides || []).length + ' 页')
   performance.durationMs = Date.now() - startedAt
-  const out = { ok: true, course, title: courseData.title, files: {}, check: { rounds, problems: check.problems || [], metrics: check.metrics || null, skipped: !!check.skipped, error: check.error || '' }, performance, timeline: ((jobStatus.get(jobId) || {}).timeline || []) }
+  const out = { ok: true, course, title: courseData.title, files: {}, warnings: qualityWarnings, check: { rounds, problems: check.problems || [], metrics: check.metrics || null, skipped: !!check.skipped, error: check.error || '' }, performance, timeline: ((jobStatus.get(jobId) || {}).timeline || []) }
   const toRel = (abs) => {
     if (isPathInside(abs, storageDir)) {
       return { rel: abs.slice(storageDir.length).replace(/\\/g, '/').replace(/^\//, ''), url: '/study-assistant/file?p=' + encodeURIComponent(abs) }
@@ -1167,7 +1190,7 @@ export async function generateBatch(cfg, req) {
       r = { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
     if (r && r.ok) okCount++
-    results.push({ file: f, name: fname, ok: !!(r && r.ok), title: (r && r.title) || '', error: (r && r.error) || '', files: (r && r.files) || {}, indexUrl: (r && r.indexUrl) || '', indexPath: (r && r.indexPath) || '', performance: (r && r.performance) || null })
+    results.push({ file: f, name: fname, ok: !!(r && r.ok), title: (r && r.title) || '', error: (r && r.error) || '', warnings: (r && r.warnings) || [], files: (r && r.files) || {}, indexUrl: (r && r.indexUrl) || '', indexPath: (r && r.indexPath) || '', performance: (r && r.performance) || null })
   }
   const lastOk = [...results].reverse().find(x => x.ok)
   const out = {
