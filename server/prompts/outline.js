@@ -1,15 +1,21 @@
-export function outlinePrompt(outlineContext, sectionRange) {
+export function outlinePrompt(outlineContext, sectionRange, materialMode = 'auto') {
+  const requestedMode = materialMode === 'homework'
+    ? '\n【资料处理方式】用户指定为作业讲解。按题目及答案的对应关系组织，不把题干改写成一般知识定义。'
+    : (materialMode === 'course' ? '\n【资料处理方式】用户指定为普通课程资料。按知识结构组织。' : '')
   return `${outlineContext}
+${requestedMode}
 
 【第一步】设计课程大纲
 先识别资料类型，再输出以下 JSON 对象：
-{ "title": "...", "subtitle": "...", "materialType": "论文文献|教材课件|技术文档|其他", "difficulty": "入门|进阶|高阶", "estimateMinutes": 60, "objectives": ["学完后能够……"], "sections": [ { "heading": "小节标题", "keyPoints": ["资料中必须讲清的具体知识点1", "定义、条件、公式或推导2"], "sourceRefs": ["S1"], "sourceRanges": [ { "source": "S1", "kind": "PAGE", "from": 3, "to": 15 } ] } ] }
+{ "title": "...", "subtitle": "...", "materialType": "论文文献|教材课件|技术文档|作业习题|其他", "difficulty": "入门|进阶|高阶", "estimateMinutes": 60, "objectives": ["学完后能够……"], "sections": [ { "heading": "小节标题", "keyPoints": ["资料中必须讲清的具体知识点1", "定义、条件、公式或推导2"], "questionRefs": ["题号或小题号"], "sourceRefs": ["S1"], "sourceRanges": [ { "source": "S1", "kind": "PAGE", "from": 3, "to": 15 } ] } ] }
 
 【大纲规范】
 - 大纲应支持学生独立学习，并完整列出资料中的理论、定义、条件、公式、推导、例题、图表含义和结论。
 - Agenda、目录或重复章节导航可作为章节边界；渐进页面归入同一知识单元，其中新增的信息进入 keyPoints。
 - 论文、综述和学术文献按研究问题与背景、方法、证据或实验、结果、局限和启示组织。
 - 教材、课件和技术文档按概念依赖及资料原有逻辑组织。
+- 作业、习题集或试卷按题目及答案的对应关系组织。每道实质题目必须进入一个小节的 questionRefs；相关小题可以组成同一小节，互不相关的题目不合并。题干、已知条件、资料提供的解答步骤和最终答案分别识别。
+- 作业资料只有最终答案而没有解答过程时，在 keyPoints 中注明“资料仅提供最终答案”；不要把缺失的过程写成资料已有内容。
 - 公式、例题、案例、实验数字、推导和结论均以资料正文为依据。keyPoints 使用具体、可检查的知识表述。
 - sourceRanges 描述每个小节需要阅读的资料范围，用于向小节生成节点提供上下文；范围允许重叠，并可跳过 Agenda、重复动画、章节过渡和装饰页。
 - References、Bibliography、Works Cited 或“参考文献”标题表示正文结束，后续文献条目排除在大纲之外。

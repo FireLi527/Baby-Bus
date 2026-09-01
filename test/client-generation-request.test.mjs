@@ -65,6 +65,30 @@ test('只勾选一个文件仍沿用分别生成的批量接口', () => {
   assert.equal(submission.body.outputName, '')
 })
 
+test('手动指定作业讲解模式会进入生成请求', () => {
+  const submission = buildGenerationSubmission({
+    selectedPath: 'E:/资料/Homework-1.pdf',
+    selectedName: 'Homework-1.pdf',
+    courses,
+    courseMode: '文档分析',
+    materialMode: 'homework',
+    wantHtml: true,
+  })
+  assert.equal(submission.body.materialMode, 'homework')
+})
+
+test('自动识别模式保持后端默认行为', () => {
+  const submission = buildGenerationSubmission({
+    selectedPath: 'E:/资料/W5.pdf',
+    selectedName: 'W5.pdf',
+    courses,
+    courseMode: '文档分析',
+    materialMode: 'auto',
+    wantHtml: true,
+  })
+  assert.equal('materialMode' in submission.body, false)
+})
+
 test('生成请求在提交前统一验证选择、输出格式和课程', () => {
   assert.equal(buildGenerationSubmission({ wantHtml: true }).error, '请先选择或勾选文件')
   assert.equal(buildGenerationSubmission({ selectedPath: 'W5.pdf', wantHtml: false, wantPptx: false }).error, '至少选择一种输出格式')

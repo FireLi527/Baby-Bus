@@ -10,6 +10,7 @@ export function buildGenerationSubmission({
   newCourseName = '',
   multiMode = 'separate',
   combinedName = '',
+  materialMode = 'auto',
   depth = 'standard',
   wantHtml = true,
   wantPptx = false,
@@ -31,6 +32,7 @@ export function buildGenerationSubmission({
   const common = {
     course,
     coursePath: selectedCourse ? selectedCourse.rel : '',
+    ...(materialMode === 'homework' || materialMode === 'course' ? { materialMode } : {}),
     depth,
     html: !!wantHtml,
     pptx: !!wantPptx,

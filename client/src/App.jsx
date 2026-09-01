@@ -85,6 +85,7 @@ function Panel() {
   const [taxonomy, setTaxonomy] = useState({ courses: [] })
   const [multiMode, setMultiMode] = useState('separate')
   const [combinedName, setCombinedName] = useState('')
+  const [materialMode, setMaterialMode] = useState('auto')
   const [depth, setDepth] = useState('standard')
   const [wantHtml, setWantHtml] = useState(true)
   const [wantPptx, setWantPptx] = useState(false)
@@ -173,6 +174,7 @@ function Panel() {
       newCourseName: courseNew,
       multiMode,
       combinedName,
+      materialMode,
       depth,
       wantHtml,
       wantPptx,
@@ -219,6 +221,7 @@ function Panel() {
         courseNew={courseNew}
         multiMode={multiMode}
         combinedName={combinedName}
+        materialMode={materialMode}
         depth={depth}
         wantHtml={wantHtml}
         wantPptx={wantPptx}
@@ -232,6 +235,7 @@ function Panel() {
         onCourseNew={setCourseNew}
         onMultiMode={setMultiMode}
         onCombinedName={setCombinedName}
+        onMaterialMode={setMaterialMode}
         onDepth={setDepth}
         onWantHtml={setWantHtml}
         onWantPptx={setWantPptx}

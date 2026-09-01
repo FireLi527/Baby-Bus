@@ -8,6 +8,7 @@ import { PAGE_CSS, RENDER_JS } from '../server/embedded.mjs'
 import { collectLayoutProblems } from '../server/check.js'
 import { buildHtmlDoc, HTML_RENDERER_VERSION, refreshGeneratedCourseHtml } from '../server/html.js'
 import { buildGlossaryHtml, deriveGlossaryFromSlides, glossaryLabel, glossaryVersion, mergeGlossary, normalizeGlossaryList, recoverEmptyGlossaries, writeGlossaryStore } from '../server/glossary.js'
+import { normalizeCourseSlides } from '../server/parse.js'
 import { pptxParts } from '../server/pptx.js'
 import { handle, setRuntimeCfg } from '../server/routes.js'
 
@@ -156,6 +157,33 @@ test('每张 Reveal 幻灯片可独立纵向滚动并在翻页时回到顶部', 
   assert.match(PAGE_CSS, /touch-action:pan-y/)
   assert.match(RENDER_JS, /center: false/)
   assert.match(RENDER_JS, /currentSlide\.scrollTop = 0/)
+})
+
+test('课件和作业中的结构化步骤不会渲染成 object Object', () => {
+  const slides = normalizeCourseSlides([{
+    title: '结构化步骤',
+    blocks: [{
+      type: 'example',
+      problem: '证明结论',
+      steps: [
+        { text: '先代入联合概率。', why: '用于构造反例。' },
+        { formula: '\\frac{1}{8} \\ne \\frac{1}{16}', explanation: '比较联合概率与边缘概率乘积。' },
+      ],
+      answer: '不独立',
+    }],
+  }])
+
+  assert.equal(slides[0].blocks[0].steps[0].text, '先代入联合概率。')
+  assert.equal(slides[0].blocks[0].steps[0].why, '用于构造反例。')
+  assert.equal(slides[0].blocks[0].steps[1].latex, '$$\\frac{1}{8} \\ne \\frac{1}{16}$$')
+  assert.equal(slides[0].blocks[0].steps[1].why, '比较联合概率与边缘概率乘积。')
+
+  const pptx = pptxParts({ title: '课程', slides }, '课程')
+  const lines = pptx[0].blocks[0].lines.join('\n')
+  assert.match(lines, /先代入联合概率.*用于构造反例/)
+  assert.match(lines, /frac\{1\}\{8\} ne frac\{1\}\{16\}/)
+  assert.match(RENDER_JS, /function appendStepContent/)
+  assert.doesNotMatch(RENDER_JS, /txt\(body, st\)/)
 })
 
 test('HTML 提供按 agenda 跳转的语义侧栏，并渲染经过校验的资料原图', () => {

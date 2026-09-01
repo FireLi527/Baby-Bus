@@ -73,10 +73,32 @@ function lineCount(value, width = 52) {
   return Math.max(1, Math.ceil(text.length / width))
 }
 
-function stepText(step) {
+export function stepText(step) {
   if (typeof step === 'string') return step
   if (!step || typeof step !== 'object') return ''
   return [step.text, step.latex, step.why].filter(Boolean).join(' ')
+}
+
+function firstStepText(step, keys) {
+  for (const key of keys) {
+    const value = textValue(step && step[key])
+    if (value) return value
+  }
+  return ''
+}
+
+function normalizeStructuredStep(step) {
+  if (typeof step === 'string') {
+    const text = textValue(step)
+    return text ? { text, latex: '', why: '' } : null
+  }
+  if (!step || typeof step !== 'object' || Array.isArray(step)) return null
+  const normalized = {
+    text: firstStepText(step, ['text', 'content', 'description', 'action']),
+    latex: normalizeDisplayLatex(firstStepText(step, ['latex', 'formula', 'math'])),
+    why: firstStepText(step, ['why', 'reason', 'explain', 'explanation', 'note']),
+  }
+  return normalized.text || normalized.latex ? normalized : null
 }
 
 function figureGuideText(item) {
@@ -117,6 +139,25 @@ function chunkItems(items, baseHeight, itemHeight, budget) {
   return chunks
 }
 
+function chunkProblemText(value, maxChars) {
+  const source = String(value ?? '')
+  if (!source || source.length <= maxChars) return [source]
+  const chunks = []
+  let offset = 0
+  while (offset < source.length) {
+    let end = Math.min(source.length, offset + maxChars)
+    if (end < source.length) {
+      const window = source.slice(offset, end)
+      const candidates = [window.lastIndexOf('\n'), window.lastIndexOf('。'), window.lastIndexOf('；'), window.lastIndexOf('. '), window.lastIndexOf(' ')]
+      const boundary = Math.max(...candidates)
+      if (boundary >= Math.floor(maxChars * 0.55)) end = offset + boundary + 1
+    }
+    chunks.push(source.slice(offset, end))
+    offset = end
+  }
+  return chunks
+}
+
 function splitLargeBlock(block, budget) {
   if (estimateBlockHeight(block) <= budget) return [block]
   if (block.type === 'bullets') {
@@ -135,6 +176,17 @@ function splitLargeBlock(block, budget) {
   if (block.type === 'example') {
     const base = 70 + lineCount(block.problem) * 26
     const chunks = chunkItems(block.steps, base, step => 44 + (lineCount(stepText(step)) - 1) * 24, budget)
+    if (!chunks.length) {
+      const maxProblemChars = Math.max(120, Math.floor((budget - 70) / 26) * 52)
+      const problemChunks = chunkProblemText(block.problem, maxProblemChars)
+      if (problemChunks.length === 1) return [block]
+      return problemChunks.map((problem, index) => ({
+        ...block,
+        problem,
+        answer: index === problemChunks.length - 1 ? block.answer : '',
+        note: index === problemChunks.length - 1 ? block.note : '',
+      }))
+    }
     return chunks.map((steps, index) => ({ ...block, steps, answer: index === chunks.length - 1 ? block.answer : '', note: index === chunks.length - 1 ? block.note : '' }))
   }
   return [block]
@@ -171,13 +223,14 @@ function rebalanceSparsePages(pages, budget, minimum = 300) {
   return pages
 }
 
-function needsDeterministicPagination(slide) {
+function needsDeterministicPagination(slide, budget) {
   const blocks = slide.blocks || []
   const maxTableRows = Math.max(0, ...blocks.filter(block => block.type === 'table').map(block => (block.rows || []).length))
   const maxBulletItems = Math.max(0, ...blocks.filter(block => block.type === 'bullets').map(block => (block.items || []).length))
   const maxWalkSteps = Math.max(0, ...blocks.filter(block => block.type === 'walkthrough').map(block => (block.steps || []).length))
   const maxStructuredSteps = Math.max(0, ...blocks.filter(block => ['walkthrough', 'derivation', 'example'].includes(block.type)).map(block => (block.steps || []).length))
-  return blocks.length > 4 || maxTableRows > 12 || maxBulletItems > 10 || maxStructuredSteps > 7 || (blocks.length >= 3 && maxTableRows >= 8) || (maxBulletItems >= 6 && maxWalkSteps >= 4)
+  const oversizedQuestion = Boolean(slide.assignmentQuestion) && blocks.some(block => block.type === 'example' && estimateBlockHeight(block) > budget)
+  return oversizedQuestion || blocks.length > 4 || maxTableRows > 12 || maxBulletItems > 10 || maxStructuredSteps > 7 || (blocks.length >= 3 && maxTableRows >= 8) || (maxBulletItems >= 6 && maxWalkSteps >= 4)
 }
 
 function continuationBase(title) {
@@ -307,7 +360,7 @@ export function paginateCourseSlides(value, budget = 620) {
   for (const slide of value) {
     if (!slide || slide.kind === 'cover' || !Array.isArray(slide.blocks) || slide.blocks.length === 0) { result.push(slide); continue }
     // 一般页面交给真实浏览器自检；只对结构上必然过密的页面确定性拆分，避免把正常页拆成孤零零的注释续页。
-    if (!needsDeterministicPagination(slide)) { result.push(slide); continue }
+    if (!needsDeterministicPagination(slide, budget)) { result.push(slide); continue }
     const expanded = slide.blocks.flatMap(block => splitLargeBlock(block, budget))
     const pages = []
     let blocks = []
@@ -350,19 +403,10 @@ export function normalizeCourseSlides(value) {
         const latex = normalizeDisplayLatex(rawBlock.latex)
         if (latex) blocks.push({ ...rawBlock, type, latex, note: textValue(rawBlock.note) })
       } else if (type === 'derivation') {
-        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(step => {
-          if (typeof step === 'string') return { text: textValue(step) }
-          if (!step || typeof step !== 'object') return null
-          return {
-            ...step,
-            latex: normalizeDisplayLatex(step.latex),
-            text: textValue(step.text),
-            why: textValue(step.why),
-          }
-        }).filter(step => step && (step.latex || step.text)) : []
+        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(normalizeStructuredStep).filter(Boolean) : []
         if (steps.length) blocks.push({ ...rawBlock, type, steps })
       } else if (type === 'walkthrough') {
-        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(step => typeof step === 'string' ? { text: step } : step).filter(step => step && textValue(step.text)) : []
+        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(normalizeStructuredStep).filter(Boolean) : []
         if (steps.length) blocks.push({ ...rawBlock, type, title: textValue(rawBlock.title), steps })
       } else if (type === 'table') {
         const headers = Array.isArray(rawBlock.headers) ? rawBlock.headers.map(value => String(value ?? '')) : []
@@ -389,7 +433,7 @@ export function normalizeCourseSlides(value) {
         }
       } else if (type === 'example') {
         const problem = textValue(rawBlock.problem) || textValue(rawBlock.content)
-        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.filter(step => typeof step === 'string' ? step.trim() : step && (textValue(step.text) || textValue(step.latex))) : []
+        const steps = Array.isArray(rawBlock.steps) ? rawBlock.steps.map(normalizeStructuredStep).filter(Boolean) : []
         if (problem || steps.length || textValue(rawBlock.answer)) blocks.push({ ...rawBlock, type, problem, steps, answer: textValue(rawBlock.answer), note: textValue(rawBlock.note) })
       }
     }

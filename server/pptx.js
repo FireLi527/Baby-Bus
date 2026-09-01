@@ -1,5 +1,6 @@
 // PPTX 生成：结构化块 → 带配色卡片的 OOXML
 import { stripLatex, xmlEsc } from './util.js'
+import { stepText } from './parse.js'
 
 export function pptxParts(course, title) {
   const slides = []
@@ -13,13 +14,13 @@ export function pptxParts(course, title) {
       if (b.type === 'text') blocks.push({ type: 'text', lines: [stripLatex(b.content)] })
       else if (b.type === 'bullets') blocks.push({ type: 'bullets', lines: (b.items || []).map(stripLatex) })
       else if (b.type === 'formula') blocks.push({ type: 'formula', lines: [stripLatex(b.latex)].concat(b.note ? ['说明：' + stripLatex(b.note)] : []) })
-      else if (b.type === 'derivation') blocks.push({ type: 'derivation', lines: (b.steps || []).map(st => stripLatex(st.latex || st.text || '')) })
+      else if (b.type === 'derivation') blocks.push({ type: 'derivation', lines: (b.steps || []).map(st => stripLatex(stepText(st))) })
       else if (b.type === 'table') blocks.push({ type: 'table', lines: [(b.headers || []).join(' | ')].concat((b.rows || []).map(r => r.join(' | '))).concat(b.caption ? [stripLatex(b.caption)] : []) })
-      else if (b.type === 'example') blocks.push({ type: 'example', lines: ['题目：' + stripLatex(b.problem)].concat((b.steps || []).map((st, i) => '第' + (i + 1) + '步：' + stripLatex(typeof st === 'string' ? st : st.text || ''))).concat(b.answer ? ['答案：' + stripLatex(b.answer)] : []).concat(b.note ? ['启示：' + stripLatex(b.note)] : []) })
+      else if (b.type === 'example') blocks.push({ type: 'example', lines: ['题目：' + stripLatex(b.problem)].concat((b.steps || []).map((st, i) => '第' + (i + 1) + '步：' + stripLatex(stepText(st)))).concat(b.answer ? ['答案：' + stripLatex(b.answer)] : []).concat(b.note ? ['启示：' + stripLatex(b.note)] : []) })
       else if (b.type === 'note') blocks.push({ type: 'note', lines: [(b.title ? (b.title + '：') : '') + stripLatex(b.content)] })
       else if (b.type === 'intuition') blocks.push({ type: 'intuition', lines: [stripLatex(b.content)] })
       else if (b.type === 'analogy') blocks.push({ type: 'analogy', lines: [stripLatex(b.content)] })
-      else if (b.type === 'walkthrough') blocks.push({ type: 'walkthrough', lines: (b.title ? ['【' + stripLatex(b.title) + '】'] : []).concat((b.steps || []).map(st => stripLatex(st.text || ''))) })
+      else if (b.type === 'walkthrough') blocks.push({ type: 'walkthrough', lines: (b.title ? ['【' + stripLatex(b.title) + '】'] : []).concat((b.steps || []).map(st => stripLatex(stepText(st)))) })
     }
     slides.push({ kind: 'content', title: s.title || '', blocks })
   }

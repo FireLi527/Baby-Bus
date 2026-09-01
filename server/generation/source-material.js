@@ -19,6 +19,33 @@ export function detectLiteratureMaterial(outline, sources = []) {
   })
 }
 
+/**
+ * 识别以题目为主体的作业、习题集或试卷。模型声明优先；正文启发式保持保守，
+ * 避免仅仅提到一次“作业”就把普通讲义切换为逐题讲解。
+ */
+export function detectAssignmentMaterial(outline, sources = []) {
+  const declared = String(outline && outline.materialType || '').trim()
+  if (/作业|习题|练习册|试卷|题集|assignment|homework|problem\s*set|worksheet|exam/i.test(declared)) return true
+  if (/论文|文献|学术|research\s*paper|academic\s*(?:paper|article)|journal\s*article/i.test(declared)) return false
+  const strongestSignal = Math.max(0, ...(sources || []).map(source => {
+    const text = String(source && (source.modelText || source.text) || '')
+    const name = String(source && source.name || '')
+    let signals = 0
+    if (/(?:作业|习题|练习|试卷|题集|答案|解析|solutions?|answer\s*key|assignment|homework|problem\s*set|worksheet|exam)/i.test(name)) signals += 2
+    if (/^\s*(?:作业|习题|练习|试卷|答案|参考答案|解析|solutions?|answer\s*key|assignment|homework|problem\s*set)\s*[:：]?/im.test(text)) signals += 2
+    const numberedQuestions = (text.match(/^\s*(?:question|problem|exercise|题目?|练习|习题)?\s*(?:\d+|[一二三四五六七八九十]+)[.)、：:]\s+.+$/gim) || []).length
+    const answerMarkers = (text.match(/^\s*(?:答案|解答|解析|solution|answer)\s*[:：]?/gim) || []).length
+    if (numberedQuestions >= 3) signals += 2
+    else if (numberedQuestions >= 1) signals++
+    if (answerMarkers >= 2) signals += 2
+    else if (answerMarkers >= 1) signals++
+    return signals
+  }))
+  // 明确声明为普通课程资料时仍允许强证据纠错，例如文件名、连续题号和答案区同时存在。
+  if (/教材|课件|讲义|技术文档|说明书|手册/.test(declared)) return strongestSignal >= 6
+  return strongestSignal >= 4
+}
+
 /** 论文正文在参考文献标题处结束；目录中的早期标题不会被误当成正文结尾。 */
 export function stripPaperReferenceTail(value) {
   const text = String(value || '')

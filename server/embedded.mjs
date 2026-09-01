@@ -7,6 +7,7 @@ export const SYS = `你是一位面向中文学习者的课程讲师。请依据
 先识别资料类型，再选择合适的讲解结构：
 - 教材、讲义和技术课件：围绕直觉、动机、定义、资料已有的公式或例子，以及关键辨析组织内容；各部分按当前概念的实际需要选用。
 - 论文、综述和学术文献：围绕研究问题、背景、方法、证据、结果、局限和启示组织内容。
+- 作业、习题集和试卷：按题目与答案的对应关系组织，区分题干、条件、考查知识、资料已有解答步骤、最终答案和易错点；不把题干改写成一般知识定义。
 - 新概念应说明它解决的问题、与前置概念的关系，以及容易混淆的边界。类比只用于辅助理解，并明确其解释性质。
 
 【资料忠实性】
@@ -192,6 +193,25 @@ export const RENDER_JS = `(function(){
   var assets = course.assets && typeof course.assets === 'object' ? course.assets : {}
   var ANIM = 'dsh-anim'
 
+  function stepField(st, keys) {
+    if (!st || typeof st !== 'object') return ''
+    for (var i = 0; i < keys.length; i++) {
+      var value = st[keys[i]]
+      if (typeof value === 'string' && value.trim()) return value.trim()
+    }
+    return ''
+  }
+
+  function appendStepContent(parent, st) {
+    if (typeof st === 'string') { txt(parent, st); return }
+    var text = stepField(st, ['text', 'content', 'description', 'action'])
+    var latex = stepField(st, ['latex', 'formula', 'math'])
+    var why = stepField(st, ['why', 'reason', 'explain', 'explanation', 'note'])
+    if (latex) { var math = el('div', 'b-ds-latex'); txt(math, displayMath(latex)); parent.appendChild(math) }
+    if (text) { var explanation = el('div', 'b-step-text'); txt(explanation, text); parent.appendChild(explanation) }
+    if (why) { var reason = el('div', 'b-ds-why'); txt(reason, why); parent.appendChild(reason) }
+  }
+
   function block(b, inner, bi) {
     var wrap = el('div', ANIM)
     wrap.style.animationDelay = (bi * 70) + 'ms'
@@ -205,12 +225,12 @@ export const RENDER_JS = `(function(){
       inner.appendChild(wrap)
     } else if (b.type === 'derivation') {
       var d = el('div', 'b-derive')
-      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ds'); var num = el('div', 'b-ds-num'); txt(num, String(si + 1)); row.appendChild(num); var bd = el('div', 'b-ds-body'); if (st.latex) { var math = el('div', 'b-ds-latex'); txt(math, displayMath(st.latex)); bd.appendChild(math) } else { txt(bd, st.text || '') } if (st.why) { var why = el('div', 'b-ds-why'); txt(why, st.why); bd.appendChild(why) } row.appendChild(bd); d.appendChild(row) })
+      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ds'); var num = el('div', 'b-ds-num'); txt(num, String(si + 1)); row.appendChild(num); var bd = el('div', 'b-ds-body'); appendStepContent(bd, st); row.appendChild(bd); d.appendChild(row) })
       wrap.appendChild(d); inner.appendChild(wrap)
     } else if (b.type === 'example') {
       var ex = el('div', 'b-example')
       var ep = el('div', 'b-ex-p'); txt(ep, b.problem || ''); ex.appendChild(ep)
-      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ex-row'); var num = el('div', 'b-ex-num'); txt(num, '第 ' + (si + 1) + ' 步'); row.appendChild(num); var body = el('div', 'b-ex-body'); txt(body, st); row.appendChild(body); ex.appendChild(row) })
+      ;(b.steps || []).forEach(function(st, si){ var row = el('div', 'b-ex-row'); var num = el('div', 'b-ex-num'); txt(num, '第 ' + (si + 1) + ' 步'); row.appendChild(num); var body = el('div', 'b-ex-body'); appendStepContent(body, st); row.appendChild(body); ex.appendChild(row) })
       if (b.answer) { var an = el('div', 'b-ex-answer'); txt(an, '答案：' + b.answer); ex.appendChild(an) }
       if (b.note) { var nt = el('div', 'b-ex-note'); txt(nt, '启示：' + b.note); ex.appendChild(nt) }
       wrap.appendChild(ex); inner.appendChild(wrap)
@@ -261,7 +281,7 @@ export const RENDER_JS = `(function(){
     } else if (b.type === 'walkthrough') {
       var wb = el('div', 'b-walk')
       if (b.title) { var wt = el('div', 'b-walk-t'); txt(wt, '🔢 ' + b.title); wb.appendChild(wt) }
-      ;(b.steps || []).forEach(function(st, si){ var wr = el('div', 'b-walk-row'); var wn = el('div', 'b-walk-num'); txt(wn, String(si + 1)); wr.appendChild(wn); var wc = el('div', 'b-walk-body'); txt(wc, st.text || ''); wr.appendChild(wc); wb.appendChild(wr) })
+      ;(b.steps || []).forEach(function(st, si){ var wr = el('div', 'b-walk-row'); var wn = el('div', 'b-walk-num'); txt(wn, String(si + 1)); wr.appendChild(wn); var wc = el('div', 'b-walk-body'); appendStepContent(wc, st); wr.appendChild(wc); wb.appendChild(wr) })
       wrap.appendChild(wb); inner.appendChild(wrap)
     } else if (b.type === 'note') {
       var nb = el('div', 'b-note-box'); if (b.title) { var t = el('b'); txt(t, b.title); nb.appendChild(t) } txt(nb, b.content || ''); wrap.appendChild(nb); inner.appendChild(wrap)

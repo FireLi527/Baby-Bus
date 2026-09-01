@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { PAGE_CSS, RENDER_JS } from './embedded.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-export const HTML_RENDERER_VERSION = 19
+export const HTML_RENDERER_VERSION = 20
 
 let runtimeCache = null
 

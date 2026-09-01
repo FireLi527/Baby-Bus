@@ -8,6 +8,7 @@ export default function GenerationOptions({
   courseNew,
   multiMode,
   combinedName,
+  materialMode,
   depth,
   wantHtml,
   wantPptx,
@@ -21,6 +22,7 @@ export default function GenerationOptions({
   onCourseNew,
   onMultiMode,
   onCombinedName,
+  onMaterialMode,
   onDepth,
   onWantHtml,
   onWantPptx,
@@ -54,7 +56,14 @@ export default function GenerationOptions({
           {multiMode === 'combined' ? <input className="la-input" placeholder="合并课件文件名（可选）" value={combinedName} onChange={event => onCombinedName(event.target.value)} /> : null}
         </>
       ) : null}
-      <div className="la-sec">{checkedCount > 1 ? '4' : '3'}. 讲解深度</div>
+      <div className="la-sec">{checkedCount > 1 ? '4' : '3'}. 资料处理方式</div>
+      <select className="la-input" value={materialMode} onChange={event => onMaterialMode(event.target.value)}>
+        <option value="auto">自动识别（推荐）</option>
+        <option value="course">普通课程资料</option>
+        <option value="homework">作业讲解（题目与答案对应）</option>
+      </select>
+      <div className="la-hint">带答案的作业建议选择“作业讲解”；自动识别不确定时可手动指定。</div>
+      <div className="la-sec">{checkedCount > 1 ? '5' : '4'}. 讲解深度</div>
       <select className="la-input" value={depth} onChange={event => onDepth(event.target.value)}>
         <option value="concise">简明：核心内容</option>
         <option value="standard">标准：完整讲解</option>

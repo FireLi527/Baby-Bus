@@ -160,6 +160,31 @@ test('渲染前会过滤空白或未知内容块并兼容简写例题', () => {
   assert.equal(slides[0].blocks[0].problem, '计算 1+1')
 })
 
+test('只有完整长题干而没有步骤的例题在分页时不会被删除', () => {
+  const problem = '完整题干：' + '保留所有已知条件和设问。'.repeat(90)
+  const slides = paginateCourseSlides([{
+    title: '长题干',
+    blocks: [{ type: 'example', problem, steps: [], answer: '' }],
+  }])
+  assert.ok(slides.length >= 1)
+  assert.equal(slides[0].blocks[0].problem, problem)
+})
+
+test('独立原题页过长时只拆分题干并保持逐字内容与页面职责', () => {
+  const problem = 'Q7. ' + 'Read every condition carefully before answering the question. '.repeat(35)
+  const slides = paginateCourseSlides([{
+    title: 'Q7：原题',
+    assignmentQuestion: true,
+    assignmentQuestionId: 'Q7',
+    blocks: [{ type: 'example', problem, steps: [], answer: '', note: '' }],
+  }], 360)
+  assert.ok(slides.length > 1)
+  assert.equal(slides.map(slide => slide.blocks[0].problem).join(''), problem)
+  assert.ok(slides.every(slide => slide.assignmentQuestion === true))
+  assert.ok(slides.every(slide => slide.blocks[0].steps.length === 0 && !slide.blocks[0].answer))
+  assert.match(slides[1].title, /原题（续）/)
+})
+
 test('裸 LaTeX 在生成结果进入渲染前会补全展示定界符', () => {
   assert.equal(normalizeDisplayLatex('\\sigma(c \\cdot w)'), '$$\\sigma(c \\cdot w)$$')
   assert.equal(normalizeDisplayLatex('$x+y$'), '$$x+y$$')
